@@ -157,7 +157,16 @@ static std::uint64_t bitexact_run() {
 }
 
 // Captured on x86-64 / MSVC 19.44, verified identical across Debug and Release.
-static constexpr std::uint64_t kBitExactGolden = 0xd22e42a57778d225ull;
+// Re-captured 2026-09-11 after fixing a real cross-platform BitExact bug (a
+// real 3-OS CI run caught it): the 6-DOF roll->Quat write-back in sim.cpp
+// used plain std::cos/std::sin unconditionally, which isn't bit-identical
+// across platforms for a general input; it now routes through
+// fx_cos_full/fx_sin_full (fixed_lut.hpp) when bitExact_. This changes the
+// digest (the fixed-point trig table is a lossy-but-deterministic
+// approximation of the libm functions it replaces) but not the physical
+// meaning — see fixed_lut.hpp's fx_sin_full/fx_cos_full comment and
+// sim.cpp's writeBack for the full story.
+static constexpr std::uint64_t kBitExactGolden = 0x21525237f2e246b2ull;
 
 static int bitexact_golden() {
     const std::uint64_t a = bitexact_run();

@@ -77,4 +77,49 @@ inline Fx32 fx_pow_neg017(Fx32 t) {
                         fx32_sqrt(fx32_sqrt(t)));
 }
 
+// --- Full-range periodic sin/cos, built on the [0, π] table above ---------
+//
+// fx_sin's domain is [0, π] — enough for a total angle of attack, but the
+// 6-DOF *roll phase* (∫p, ProjectileState::spinPhase_rad) is an unbounded,
+// continuously accumulating angle: thousands of radians over a real flight.
+// Found by a real cross-platform CI run: the roll phase itself integrates
+// exactly (Fx32 the whole way, B6), but src/sim.cpp's Quat-from-roll
+// conversion used plain std::cos/std::sin unconditionally — and different
+// platforms' libm give slightly different last-bit results for the same
+// input, which lands directly in ProjectileState::orientation (hashed
+// state) and cascades into a different digest despite the physics being
+// bit-identical. fx_sin_full/fx_cos_full close that gap.
+//
+// kFx32PiRaw / kFx32TwoPiRaw / kFx32PiHalfRaw are embedded raw Q32.32
+// integers (like every other LUT constant here) — computed once offline at
+// higher precision than a double can hold, not derived from a runtime
+// double-to-Fx32 conversion, so they carry no platform-dependent rounding.
+// kFx32TwoPiRaw is exactly 2×kFx32PiRaw (not independently rounded) so the
+// sin(r) = -sin(r-π) reflection below has no seam at the [0,π]/[π,2π) wrap.
+inline constexpr std::int64_t kFx32PiRaw      = 13493037705;
+inline constexpr std::int64_t kFx32TwoPiRaw   = 2 * kFx32PiRaw;
+inline constexpr std::int64_t kFx32PiHalfRaw  = 6746518852;
+inline constexpr Fx32 kFx32Pi     = Fx32::from_raw(kFx32PiRaw);
+inline constexpr Fx32 kFx32TwoPi  = Fx32::from_raw(kFx32TwoPiRaw);
+inline constexpr Fx32 kFx32PiHalf = Fx32::from_raw(kFx32PiHalfRaw);
+
+// Reduce an arbitrary (possibly negative, possibly huge) angle into [0, 2π)
+// via exact floor-division on the raw Q32.32 integers — integer-only, no FP,
+// identical on every target regardless of magnitude.
+inline Fx32 fx_mod_2pi(Fx32 x) {
+    std::int64_t r = x.raw % kFx32TwoPiRaw; // C++ %: truncated toward zero
+    if (r < 0) r += kFx32TwoPiRaw;          // floor-mod adjustment
+    return Fx32::from_raw(r);
+}
+
+// sin(x) for any x, via periodic reduction + the [0, π] table's reflection
+// identity sin(r) = -sin(r - π) for r in [π, 2π).
+inline Fx32 fx_sin_full(Fx32 x) {
+    const Fx32 r = fx_mod_2pi(x);
+    return r <= kFx32Pi ? fx_sin(r) : -fx_sin(r - kFx32Pi);
+}
+
+// cos(x) = sin(x + π/2), full range.
+inline Fx32 fx_cos_full(Fx32 x) { return fx_sin_full(x + kFx32PiHalf); }
+
 } // namespace pon::detail

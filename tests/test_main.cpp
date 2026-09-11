@@ -4283,6 +4283,30 @@ PON_TEST(fx_sin_matches_std_over_zero_to_pi) {
     CHECK(std::fabs(fx_sin(Fx32::from_double(3.14159265358979)).to_double()) <= 5.0e-6);
 }
 
+PON_TEST(fx_sin_cos_full_match_std_over_many_periods) {
+    // fx_sin's own table is [0,pi] only; fx_sin_full/fx_cos_full (Tier: real
+    // cross-platform CI bug fix, sim.cpp's 6-DOF roll->Quat write-back) must
+    // stay correct — not just self-consistent — over an UNBOUNDED angle:
+    // several full turns positive and negative, not just one period.
+    using pon::detail::Fx32; using pon::detail::fx_sin_full; using pon::detail::fx_cos_full;
+    const double twoPi = 2.0 * 3.14159265358979323846;
+    for (int k = -400; k <= 400; ++k) {
+        const double a = k * (twoPi / 37.0); // steps that don't line up with pi/2
+        const double gotSin = fx_sin_full(Fx32::from_double(a)).to_double();
+        const double gotCos = fx_cos_full(Fx32::from_double(a)).to_double();
+        CHECK(std::fabs(gotSin - std::sin(a)) <= 5.0e-6);
+        CHECK(std::fabs(gotCos - std::cos(a)) <= 5.0e-6);
+        // sin^2 + cos^2 == 1 to the same tolerance, from the SAME fixed-point
+        // path an actual writeBack call takes (not compared against std here).
+        CHECK(std::fabs(gotSin * gotSin + gotCos * gotCos - 1.0) <= 5.0e-5);
+    }
+    // Exact quarter-turns: sin/cos should be unambiguous, not near a table edge.
+    CHECK(std::fabs(fx_sin_full(Fx32::from_double(0.0)).to_double() - 0.0) <= 1e-6);
+    CHECK(std::fabs(fx_cos_full(Fx32::from_double(0.0)).to_double() - 1.0) <= 1e-6);
+    CHECK(std::fabs(fx_sin_full(Fx32::from_double(3.14159265358979)).to_double() - 0.0) <= 1e-5);
+    CHECK(std::fabs(fx_cos_full(Fx32::from_double(3.14159265358979)).to_double() - (-1.0)) <= 1e-5);
+}
+
 PON_TEST(fx_acos_matches_std) {
     using pon::detail::Fx32; using pon::detail::fx_acos;
     for (int k = -95; k <= 95; ++k) {           // |c| ≤ 0.95: gentle slope

@@ -15,6 +15,7 @@
 #include "ball_profiles.hpp"
 #include "defaults.hpp"
 #include "drag_tables.hpp"
+#include "fixed_lut.hpp"
 #include "integrate.hpp"
 #include "terminal.hpp"
 
@@ -1068,9 +1069,26 @@ void Sim::advanceSixDOF(ProjectileState& s, const ProjectileType& t, Seconds dt,
         rs.roll   = s.spinPhase_rad;
 
         auto writeBack = [&](Real alpha) {
+            // rs.roll is exact (integrated in Fx32 the whole way when
+            // bitExact_ — see integrate.cpp) but std::cos/std::sin are not
+            // guaranteed bit-identical across platforms for a general input
+            // (unlike +,-,*,/,sqrt, which IEEE-754 mandates exact rounding
+            // for). Route through the fixed-point LUT in that mode so this
+            // Quat — part of the hashed state — stays exact too; a real
+            // cross-platform CI run caught this (see fixed_lut.hpp's
+            // fx_sin_full/fx_cos_full comment).
+            const Real half = rs.roll * Real(0.5);
+            Real rollCos, rollSin;
+            if (bitExact_) {
+                const detail::Fx32 halfFx = detail::Fx32::from_double(half);
+                rollCos = detail::fx_cos_full(halfFx).to_double();
+                rollSin = detail::fx_sin_full(halfFx).to_double();
+            } else {
+                rollCos = std::cos(half);
+                rollSin = std::sin(half);
+            }
             s.orientation = quat_from_to(Vec3{1, 0, 0}, rs.nose) *
-                            Quat{std::cos(rs.roll * Real(0.5)),
-                                 std::sin(rs.roll * Real(0.5)), 0, 0};
+                            Quat{rollCos, rollSin, 0, 0};
             const Vec3 wBody = s.orientation.inv_rotate(rs.omegaT);
             s.angVel_radps      = Vec3{rs.spin, wBody.y, wBody.z};
             s.spin_radps        = rs.spin;
