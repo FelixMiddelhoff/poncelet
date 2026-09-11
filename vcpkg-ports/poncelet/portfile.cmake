@@ -1,31 +1,25 @@
 # poncelet — vcpkg overlay port.
 # SPDX-License-Identifier: MIT
 #
-# Use today (poncelet has a public remote — https://github.com/FelixMiddelhoff/poncelet
-# — but no tagged release yet):
+# Use today:
 #   vcpkg install poncelet --overlay-ports=<repo>/vcpkg-ports
 #
-# `vcpkg_from_git` below defaults to cloning THIS repo checkout itself over a
-# `file://` URL (git supports local clones offline — no network needed) so
-# the port is usable without waiting on a tagged release. Once a `vX.Y.Z`
-# tag exists, switch the default below from the `file://` clone to the real
-#   URL https://github.com/FelixMiddelhoff/poncelet.git
-#   REF v1.0.0
-# — nothing else in this file changes. Override PONCELET_OVERLAY_GIT_URL /
+# Defaults to the real remote (https://github.com/FelixMiddelhoff/poncelet)
+# pinned to the v1.0.0 tag. Override PONCELET_OVERLAY_GIT_URL /
 # PONCELET_OVERLAY_GIT_REF (environment variables) to point at a different
-# checkout or ref without editing the port (e.g. the real remote today).
+# checkout/ref instead — e.g. a local `file://` clone of this repo, or a
+# later tag/branch — without editing the port.
 
 if(DEFINED ENV{PONCELET_OVERLAY_GIT_URL})
     set(PONCELET_GIT_URL "$ENV{PONCELET_OVERLAY_GIT_URL}")
 else()
-    get_filename_component(PONCELET_REPO_ROOT "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
-    set(PONCELET_GIT_URL "file://${PONCELET_REPO_ROOT}")
+    set(PONCELET_GIT_URL "https://github.com/FelixMiddelhoff/poncelet.git")
 endif()
 
 if(DEFINED ENV{PONCELET_OVERLAY_GIT_REF})
     set(PONCELET_GIT_FETCH_REF "$ENV{PONCELET_OVERLAY_GIT_REF}")
 else()
-    set(PONCELET_GIT_FETCH_REF "main")
+    set(PONCELET_GIT_FETCH_REF "v1.0.0")
 endif()
 
 # vcpkg_from_git's REF must be a commit SHA (it errors on a named branch/tag —
