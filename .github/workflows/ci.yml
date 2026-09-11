@@ -27,6 +27,7 @@ jobs:
         run: |
           BIN=$(find build -maxdepth 2 -name "poncelet_bench*" -type f | head -1)
           "$BIN" --bitexact-per-shot || true
+          "$BIN" --bitexact-frame-trace || true
       - name: Test
         # Includes the validation suite (poncelet_validation), the throughput
         # gate (poncelet_perf_gate) and the cross-platform BitExact golden

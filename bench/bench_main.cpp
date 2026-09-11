@@ -199,6 +199,52 @@ static int bitexact_golden() {
     return (match && repeat) ? 0 : 1;
 }
 
+// Chasing the macOS-Debug-only residual mismatch (Release is now fixed by
+// the sim.cpp FMA-contraction-off flag; Debug's shot2/shot3 digests are
+// unaffected by that same flag — so it's a second, distinct cause). The
+// folded per-shot digest (bitexact_per_shot) says THAT shot3 diverges over
+// 400 frames, not WHEN it starts: this prints shot2/shot3's raw
+// Sim::stateHash(id) (not folded/XORed — the actual per-frame value) for
+// each of the first 8 frames, so a diff against another platform's trace
+// pinpoints the exact frame the divergence begins at — frame 0 implicates
+// the spawn-time / first-force-model setup, a later frame implicates
+// accumulation.
+static int bitexact_frame_trace() {
+    Environment env;
+    SimConfig cfg;
+    cfg.determinism = config::Determinism::BitExact;
+    cfg.trajectoryCacheFrames = 8;
+    Sim sim(env, cfg);
+
+    ProjectileType bullet;
+    bullet.id = "bx_308"; bullet.klass = ProjectileClass::Bullet;
+    bullet.dragModel = DragModel::G7; bullet.ballisticCoefficient = 0.243;
+    bullet.mass_kg = 0.0113; bullet.refDiameter_m = 0.00782;
+    bullet.twistRate_m = 0.254;
+    const TypeId bid = sim.registerType(bullet);
+
+    auto fire = [&](TypeId id, Vec3 dir, double spd, FidelityTier tier, PrecisionFlag pf) {
+        LaunchParams lp;
+        lp.position = {0, 2.0, 0};
+        lp.direction = dir; lp.speed = spd; lp.tier = tier; lp.precision = pf;
+        return sim.spawn(id, lp);
+    };
+    const StateId h2 = fire(bid, {1, 0.02, 0.01}, 800.0, FidelityTier::Integrated,
+                            PrecisionFlag::SixDOF);
+    const StateId h3 = fire(bid, {1, 0.04, 0.00}, 810.0, FidelityTier::Integrated,
+                            PrecisionFlag::SpinDrift | PrecisionFlag::Coriolis);
+
+    EmptyWorld world;
+    VectorEventSink sink;
+    for (int f = 0; f < 8; ++f) {
+        sim.step(1.0 / 200.0, world, sink);
+        std::printf("bitexact-frame-trace: frame %d  shot2 = %016llx  shot3 = %016llx\n",
+                    f, (unsigned long long)sim.stateHash(h2),
+                    (unsigned long long)sim.stateHash(h3));
+    }
+    return 0;
+}
+
 // See PerShotDigests' comment. Labels match bitexact_run()'s fire() order.
 static int bitexact_per_shot() {
     static const char* const kLabel[5] = {
@@ -218,6 +264,7 @@ int main(int argc, char** argv) {
     if (argc > 1 && std::strcmp(argv[1], "--det-check") == 0) return det_check();
     if (argc > 1 && std::strcmp(argv[1], "--bitexact-golden") == 0) return bitexact_golden();
     if (argc > 1 && std::strcmp(argv[1], "--bitexact-per-shot") == 0) return bitexact_per_shot();
+    if (argc > 1 && std::strcmp(argv[1], "--bitexact-frame-trace") == 0) return bitexact_frame_trace();
     if (argc > 1 && std::strcmp(argv[1], "--bitexact-print") == 0) {
         std::printf("0x%016llxull\n", (unsigned long long)bitexact_run());
         return 0;
