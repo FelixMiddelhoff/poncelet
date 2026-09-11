@@ -26,8 +26,8 @@ it whenever you want it. Same usage as above, just a different filename.
 ## Determinism
 
 The single-TU implementation build targets **`PlatformStable`** determinism. The
-per-file `-ffp-contract=off` / `/fp:precise` flag the multi-file build puts on
-`integrate.cpp` cannot be reproduced exactly in one TU (only an approximating
-`#pragma` is emitted). For guaranteed cross-platform **`BitExact`**, use the
-multi-file build, or compile the implementation TU with FP contraction and
-fast-math disabled.
+per-file `-ffp-contract=off` / `/fp:precise` flags the multi-file build puts on
+`integrate.cpp`, `drag_tables.cpp` and `ball_profiles.cpp` cannot be reproduced
+exactly in one TU (only an approximating `#pragma` is emitted). For guaranteed
+cross-platform **`BitExact`**, use the multi-file build, or compile the
+implementation TU with FP contraction and fast-math disabled.

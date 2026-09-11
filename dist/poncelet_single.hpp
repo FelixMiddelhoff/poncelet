@@ -4447,6 +4447,14 @@ AtmoState isa_atmosphere(const IsaConditions& c) {
 
 } // namespace pon
 
+#if defined(_MSC_VER)
+#  pragma float_control(precise, on, push)
+#endif
+#if defined(__clang__)
+#  pragma clang fp contract(off)
+#endif
+#pragma STDC FP_CONTRACT OFF
+
 // ===== src/ball_profiles.cpp =====
 // poncelet — BallProfile lookup over the baked table.
 // SPDX-License-Identifier: MIT
@@ -4487,6 +4495,10 @@ const BallProfile& default_ball_profile() {
 }
 
 } // namespace pon::detail
+
+#if defined(_MSC_VER)
+#  pragma float_control(pop)
+#endif
 
 // ===== src/c_api.cpp =====
 // poncelet — C ABI implementation over the C++ Sim.
@@ -6005,6 +6017,14 @@ std::string describe(const ProjectileType& type) {
 
 } // namespace pon
 
+#if defined(_MSC_VER)
+#  pragma float_control(precise, on, push)
+#endif
+#if defined(__clang__)
+#  pragma clang fp contract(off)
+#endif
+#pragma STDC FP_CONTRACT OFF
+
 // ===== src/drag_tables.cpp =====
 // poncelet — G1/G7 standard drag functions + per-type drag-LUT compiler.
 // SPDX-License-Identifier: MIT
@@ -6237,6 +6257,10 @@ void compile_drag_lut(const ProjectileType& t, DragLuts& out) {
 }
 
 } // namespace pon::detail
+
+#if defined(_MSC_VER)
+#  pragma float_control(pop)
+#endif
 
 // ===== src/explosion.cpp =====
 // poncelet — blast field implementation (Phase 19 item 2).

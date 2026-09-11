@@ -88,13 +88,27 @@ if(PONCELET_SHARED)
   set_target_properties(poncelet_shared PROPERTIES OUTPUT_NAME poncelet_shared)
 endif()
 
-# --- Determinism prep (docs/ballistics-phase-plan.md §3.6): the integrator TU
-# is the single FP-sensitive unit — no fast-math, contraction off. Applied to
-# integrate.cpp only so a global flag change elsewhere can't silently break it.
+# --- Determinism prep (docs/ballistics-phase-plan.md §3.6): FP-sensitive TUs
+# get no-fast-math, contraction off, applied per-file so a global flag change
+# elsewhere can't silently break it.
+#   * integrate.cpp — the hot-path integrator.
+#   * drag_tables.cpp / ball_profiles.cpp — compile_drag_lut()'s interp_curve()
+#     does `a + (b - a) * f` (textbook fused-multiply-add bait). Found via a
+#     real cross-platform CI run: poncelet_bitexact_golden matched on Windows
+#     (MSVC) and Linux (x86-64 GCC/Clang, no default -mfma) but MISMATCHED on
+#     macOS — GitHub's macos-latest runners are Apple Silicon (ARM64), whose
+#     baseline ISA has native FMA that a contraction-permissive compiler will
+#     happily fold that expression into, changing the drag LUT's last bit vs
+#     x86-64's separate mul+add. That one-bit LUT difference then cascades
+#     through the otherwise-exact Q32.32 pipeline into a completely different
+#     folded hash — plausible-looking evidence, not yet re-confirmed by a
+#     second green cross-platform CI run after this fix.
 if(MSVC)
-  set_source_files_properties(src/integrate.cpp PROPERTIES COMPILE_OPTIONS "/fp:precise;/fp:except-")
+  set_source_files_properties(src/integrate.cpp src/drag_tables.cpp src/ball_profiles.cpp
+    PROPERTIES COMPILE_OPTIONS "/fp:precise;/fp:except-")
 else()
-  set_source_files_properties(src/integrate.cpp PROPERTIES COMPILE_OPTIONS "-ffp-contract=off;-fno-fast-math")
+  set_source_files_properties(src/integrate.cpp src/drag_tables.cpp src/ball_profiles.cpp
+    PROPERTIES COMPILE_OPTIONS "-ffp-contract=off;-fno-fast-math")
 endif()
 
 if(MSVC)

@@ -312,10 +312,15 @@ and README — see `docs/examples/web/README.md`.
 ### Just the headers + sources
 
 The library is small. You can also drop `include/` on your include path and add
-the files in `src/` to your build. If you do, compile `src/integrate.cpp`
-with contraction off and no fast-math (`/fp:precise` on MSVC,
-`-ffp-contract=off -fno-fast-math` on GCC/Clang) — it is the one FP-sensitive
-translation unit. `src/generated/data_tables.inc` is committed, so a Python-less
+the files in `src/` to your build. If you do, compile `src/integrate.cpp`,
+`src/drag_tables.cpp` and `src/ball_profiles.cpp` with contraction off and no
+fast-math (`/fp:precise` on MSVC, `-ffp-contract=off -fno-fast-math` on
+GCC/Clang) — they are the FP-sensitive translation units (the last two
+compile the drag LUT's linear interpolation, `a + (b-a)*f` — exactly the
+shape a contraction-permissive compiler folds into an FMA instruction on an
+ISA that has one natively, e.g. ARM64; a real cross-platform CI run caught
+`macos-latest`'s Apple Silicon runners diverging from x86-64 Windows/Linux
+here). `src/generated/data_tables.inc` is committed, so a Python-less
 build works; re-run `python3 tools/bake_data.py` after editing a `data/*.csv`
 (the CMake build does this automatically when a Python 3 interpreter is found).
 
