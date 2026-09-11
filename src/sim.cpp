@@ -57,6 +57,30 @@ Real dist_no_fma(Vec3 a, Vec3 b) {
     return std::sqrt(sum);
 }
 
+// Same story, same fix, for the 6-DOF writeBack's orientation Quat multiply
+// (quat_from_to(...) * Quat{rollCos, rollSin, 0, 0}): a real cross-platform
+// CI run caught orientation.y/orientation.z off by 1-2 ULP on isolated
+// frames on macOS Debug — never persisting (orientation is rebuilt fresh
+// each frame from the otherwise-exact nose/roll, so the fused rounding
+// doesn't accumulate), but still visible in the hashed state. Quat's
+// `a.w*b.w - a.x*b.x - a.y*b.y - a.z*b.z`-style components are the same
+// a*b+c*d contraction bait as dot(), so the same volatile-materialise
+// barrier applies, one term at a time.
+Quat quat_mul_no_fma(Quat a, Quat b) {
+    const volatile Real aw_bw = a.w * b.w, ax_bx = a.x * b.x,
+                        ay_by = a.y * b.y, az_bz = a.z * b.z;
+    const volatile Real aw_bx = a.w * b.x, ax_bw = a.x * b.w,
+                        ay_bz = a.y * b.z, az_by = a.z * b.y;
+    const volatile Real aw_by = a.w * b.y, ax_bz = a.x * b.z,
+                        ay_bw = a.y * b.w, az_bx = a.z * b.x;
+    const volatile Real aw_bz = a.w * b.z, ax_by = a.x * b.y,
+                        ay_bx = a.y * b.x, az_bw = a.z * b.w;
+    return {aw_bw - ax_bx - ay_by - az_bz,
+            aw_bx + ax_bw + ay_bz - az_by,
+            aw_by - ax_bz + ay_bw + az_bx,
+            aw_bz + ax_by - ay_bx + az_bw};
+}
+
 // Rotate `v` by `ang` radians about unit axis `k` (Rodrigues).
 Vec3 rotate_axis(Vec3 v, Vec3 k, Real ang) {
     const Real cs = std::cos(ang), sn = std::sin(ang);
@@ -1105,8 +1129,8 @@ void Sim::advanceSixDOF(ProjectileState& s, const ProjectileType& t, Seconds dt,
                 rollCos = std::cos(half);
                 rollSin = std::sin(half);
             }
-            s.orientation = quat_from_to(Vec3{1, 0, 0}, rs.nose) *
-                            Quat{rollCos, rollSin, 0, 0};
+            s.orientation = quat_mul_no_fma(quat_from_to(Vec3{1, 0, 0}, rs.nose),
+                                           Quat{rollCos, rollSin, 0, 0});
             const Vec3 wBody = s.orientation.inv_rotate(rs.omegaT);
             s.angVel_radps      = Vec3{rs.spin, wBody.y, wBody.z};
             s.spin_radps        = rs.spin;

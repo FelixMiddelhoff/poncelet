@@ -241,48 +241,18 @@ static int bitexact_frame_trace() {
         return u;
     };
 
-    // shot3's divergence (frame 6, isolated to distanceTravelled_m) is fixed
-    // now (sim.cpp's dist_no_fma) — this round narrows shot2 (SixDOF) the
-    // same way: 60 frames of shot2's raw per-frame hash to find exactly
-    // where IT first splits from Windows/Linux, since "later than frame 7"
-    // is all that's known so far.
+    // Both prior BitExact mismatches (shot3's distanceTravelled_m, shot2's
+    // writeBack orientation Quat — see dist_no_fma/quat_mul_no_fma in
+    // sim.cpp) were macOS/Apple-Clang-(-O0)-only and found by diffing this
+    // per-frame trace against another platform's. Kept small (8 frames) as
+    // a standing diagnostic for the next one.
     EmptyWorld world;
     VectorEventSink sink;
-    for (int f = 0; f < 60; ++f) {
+    for (int f = 0; f < 8; ++f) {
         sim.step(1.0 / 200.0, world, sink);
         std::printf("bitexact-frame-trace: frame %d  shot2 = %016llx  shot3 = %016llx\n",
                     f, (unsigned long long)sim.stateHash(h2),
                     (unsigned long long)sim.stateHash(h3));
-        // frame 8 (and 25) mismatch in isolation — the very next frame
-        // matches again, unlike a real trajectory divergence (which RK4
-        // would carry forward). That points at an *informational* field
-        // that doesn't feed back into next-frame physics: angleOfAttack_rad,
-        // orientation or spinPhase_rad, computed fresh each frame from
-        // nose/velocity via acc_acos/fx_sin_full — a tiny input difference
-        // could cross a LUT interpolation cell boundary on just one frame
-        // without perturbing the trajectory itself. Dump those plus nose
-        // (orientation-derived) around the frame-8 blip to check.
-        if (f == 6 || f == 7 || f == 8 || f == 9) {
-            const ProjectileState& s2 = sim.state(h2);
-            std::printf("bitexact-frame-trace: frame %d  shot2.orient=%016llx,%016llx,%016llx,%016llx"
-                       " angVel=%016llx,%016llx,%016llx aoa=%016llx spinPhase=%016llx"
-                       " pos=%016llx,%016llx,%016llx vel=%016llx,%016llx,%016llx\n",
-                       f, (unsigned long long)bits(s2.orientation.w),
-                       (unsigned long long)bits(s2.orientation.x),
-                       (unsigned long long)bits(s2.orientation.y),
-                       (unsigned long long)bits(s2.orientation.z),
-                       (unsigned long long)bits(s2.angVel_radps.x),
-                       (unsigned long long)bits(s2.angVel_radps.y),
-                       (unsigned long long)bits(s2.angVel_radps.z),
-                       (unsigned long long)bits(s2.angleOfAttack_rad),
-                       (unsigned long long)bits(s2.spinPhase_rad),
-                       (unsigned long long)bits(s2.position.x),
-                       (unsigned long long)bits(s2.position.y),
-                       (unsigned long long)bits(s2.position.z),
-                       (unsigned long long)bits(s2.velocity.x),
-                       (unsigned long long)bits(s2.velocity.y),
-                       (unsigned long long)bits(s2.velocity.z));
-        }
     }
     (void)bits;
     return 0;
