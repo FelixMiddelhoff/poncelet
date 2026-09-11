@@ -60,12 +60,14 @@ Real dist_no_fma(Vec3 a, Vec3 b) {
 // Same story, same fix, for the 6-DOF writeBack's orientation Quat multiply
 // (quat_from_to(...) * Quat{rollCos, rollSin, 0, 0}): a real cross-platform
 // CI run caught orientation.y/orientation.z off by 1-2 ULP on isolated
-// frames on macOS Debug — never persisting (orientation is rebuilt fresh
-// each frame from the otherwise-exact nose/roll, so the fused rounding
-// doesn't accumulate), but still visible in the hashed state. Quat's
-// `a.w*b.w - a.x*b.x - a.y*b.y - a.z*b.z`-style components are the same
-// a*b+c*d contraction bait as dot(), so the same volatile-materialise
-// barrier applies, one term at a time.
+// frames on macOS Debug. Quat's `a.w*b.w - a.x*b.x - a.y*b.y - a.z*b.z`-style
+// components are the same a*b+c*d contraction bait as dot(), so this guards
+// it the same way — but a FOLLOW-UP CI run after adding this alone came
+// back with the byte-for-byte IDENTICAL wrong digest, proving (not just
+// suggesting — see the project history: the exact same signature caught a
+// wrong fix once already for drag_tables.cpp) that this multiply was NOT
+// the actual source. Left in place as still-correct hardening; see
+// quat_from_to_no_fma below for the fix that actually mattered.
 Quat quat_mul_no_fma(Quat a, Quat b) {
     const volatile Real aw_bw = a.w * b.w, ax_bx = a.x * b.x,
                         ay_by = a.y * b.y, az_bz = a.z * b.z;
@@ -79,6 +81,40 @@ Quat quat_mul_no_fma(Quat a, Quat b) {
             aw_bx + ax_bw + ay_bz - az_by,
             aw_by - ax_bz + ay_bw + az_bx,
             aw_bz + ax_by - ay_bx + az_bw};
+}
+
+// The multiply above turned out not to be the culprit — the real one is
+// inside quat_from_to() itself: `normalized(Vec3)` (to = normalized(to))
+// and the final `normalized(Quat{...})` both sum FOUR/THREE squared terms
+// (`w*w + x*x + y*y + z*z`), the same a*a+b*b+c*c(+d*d) contraction pattern
+// as dot(), with genuinely non-trivial (non-zero-or-one) operands this
+// time — unlike right_of()'s cross(Vec3{0,1,0}, ...), which can only ever
+// multiply by an exact 0 or 1 and so was never actually at risk. This is
+// quat_from_to() (types.hpp) reimplemented locally with every sum-of-
+// squares routed through the same volatile barrier.
+Vec3 normalize_no_fma(Vec3 v) {
+    const volatile Real xx = v.x * v.x, yy = v.y * v.y, zz = v.z * v.z;
+    const Real len = std::sqrt(xx + yy + zz);
+    return len > Real(0) ? v / len : Vec3{};
+}
+
+Quat quat_from_to_no_fma(Vec3 from, Vec3 to) {
+    from = normalize_no_fma(from);
+    to   = normalize_no_fma(to);
+    const Real d = dot(from, to);
+    if (d >= Real(1) - Real(1e-9)) return Quat{};
+    if (d <= Real(-1) + Real(1e-9)) {
+        Vec3 ax = cross(Vec3{1, 0, 0}, from);
+        if (length_sq(ax) < Real(1e-12)) ax = cross(Vec3{0, 1, 0}, from);
+        ax = normalize_no_fma(ax);
+        return Quat{0, ax.x, ax.y, ax.z};
+    }
+    const Vec3 c = cross(from, to);
+    const Real s = std::sqrt((Real(1) + d) * Real(2));
+    const Real w = s * Real(0.5), x = c.x / s, y = c.y / s, z = c.z / s;
+    const volatile Real ww = w * w, xx = x * x, yy = y * y, zz = z * z;
+    const Real n = std::sqrt(ww + xx + yy + zz);
+    return n > Real(0) ? Quat{w / n, x / n, y / n, z / n} : Quat{};
 }
 
 // Rotate `v` by `ang` radians about unit axis `k` (Rodrigues).
@@ -1129,7 +1165,7 @@ void Sim::advanceSixDOF(ProjectileState& s, const ProjectileType& t, Seconds dt,
                 rollCos = std::cos(half);
                 rollSin = std::sin(half);
             }
-            s.orientation = quat_mul_no_fma(quat_from_to(Vec3{1, 0, 0}, rs.nose),
+            s.orientation = quat_mul_no_fma(quat_from_to_no_fma(Vec3{1, 0, 0}, rs.nose),
                                            Quat{rollCos, rollSin, 0, 0});
             const Vec3 wBody = s.orientation.inv_rotate(rs.omegaT);
             s.angVel_radps      = Vec3{rs.spin, wBody.y, wBody.z};
