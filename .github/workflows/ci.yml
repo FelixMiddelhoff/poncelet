@@ -13,7 +13,7 @@ jobs:
         config: [Release, Debug]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Configure
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=${{ matrix.config }} -DPONCELET_SHARED=ON
       - name: Build
