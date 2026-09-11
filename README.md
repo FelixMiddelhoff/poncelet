@@ -1,5 +1,7 @@
 # poncelet
 
+[![ci](https://github.com/FelixMiddelhoff/poncelet/actions/workflows/ci.yml/badge.svg)](https://github.com/FelixMiddelhoff/poncelet/actions/workflows/ci.yml)
+
 A realistic, very-low-latency **projectile & terminal-ballistics** library for
 games and simulations. Engine-agnostic, MIT-licensed, SI units, C++17 with a
 stable C ABI.
