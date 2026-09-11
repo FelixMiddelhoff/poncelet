@@ -46,7 +46,8 @@ Covers the whole arc of a thing thrown or fired through a world:
   [`c_api_shot.c`](docs/examples/c_api_shot.c).
 - **[bindings/](bindings/)** — engine-binding samples: a Godot 4 GDExtension
   (`PonceletSim` node), a Unity native plugin (C# P/Invoke over the C ABI),
-  and an Unreal Engine plugin (`UPonceletSimComponent` over the C++ API).
+  an Unreal Engine plugin (`UPonceletSimComponent` over the C++ API), and a
+  raylib sample (a keyboard-steerable aim-preview arc, no engine/editor).
   Each is a starting point, not a finished addon; none are built by CI.
 - **[docs/examples/web/](docs/examples/web/)** — poncelet cross-compiled to
   WebAssembly, `pon::preview_arc` driving a browser `<canvas>` trajectory

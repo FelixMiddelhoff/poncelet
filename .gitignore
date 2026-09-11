@@ -17,6 +17,7 @@ __pycache__/
 /bindings/godot/godot-api/
 /bindings/godot/build/
 /bindings/godot/demo/libponcelet_godot.*
+/bindings/raylib/build/
 # tools/amalgamate.py --minify output — a build-time convenience, not committed
 # (dist/poncelet_single.hpp, the unminified/documented one, IS committed).
 /dist/poncelet_single.min.hpp
