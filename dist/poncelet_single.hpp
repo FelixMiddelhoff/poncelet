@@ -7767,6 +7767,14 @@ std::size_t shaped_charge_behind_armour(const ShapedChargeDesc& d,
 
 } // namespace pon
 
+#if defined(_MSC_VER)
+#  pragma float_control(precise, on, push)
+#endif
+#if defined(__clang__)
+#  pragma clang fp contract(off)
+#endif
+#pragma STDC FP_CONTRACT OFF
+
 // ===== src/sim.cpp =====
 // poncelet — Sim front end.
 // SPDX-License-Identifier: MIT
@@ -9517,6 +9525,10 @@ bool Sim::sampleTrajectory(StateId id, Seconds t, Vec3& pos, Vec3& vel) const {
 }
 
 } // namespace pon
+
+#if defined(_MSC_VER)
+#  pragma float_control(pop)
+#endif
 
 // ===== src/terminal.cpp =====
 // poncelet — terminal-ballistics resolution. §3.5 pipeline + §3.8 refinements.

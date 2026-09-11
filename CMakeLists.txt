@@ -93,21 +93,28 @@ endif()
 # elsewhere can't silently break it.
 #   * integrate.cpp — the hot-path integrator.
 #   * drag_tables.cpp / ball_profiles.cpp — compile_drag_lut()'s interp_curve()
-#     does `a + (b - a) * f` (textbook fused-multiply-add bait). Found via a
-#     real cross-platform CI run: poncelet_bitexact_golden matched on Windows
-#     (MSVC) and Linux (x86-64 GCC/Clang, no default -mfma) but MISMATCHED on
-#     macOS — GitHub's macos-latest runners are Apple Silicon (ARM64), whose
-#     baseline ISA has native FMA that a contraction-permissive compiler will
-#     happily fold that expression into, changing the drag LUT's last bit vs
-#     x86-64's separate mul+add. That one-bit LUT difference then cascades
-#     through the otherwise-exact Q32.32 pipeline into a completely different
-#     folded hash — plausible-looking evidence, not yet re-confirmed by a
-#     second green cross-platform CI run after this fix.
+#     does `a + (b - a) * f` (textbook fused-multiply-add bait). First
+#     hypothesis for the macOS-only poncelet_bitexact_golden mismatch; kept as
+#     good practice but a follow-up CI run with the same digest afterward
+#     proved this specific fix had zero effect on the actual bug.
+#   * sim.cpp — the REAL cause (found via a per-shot digest diff: only the
+#     SixDOF and SpinDrift+Coriolis shots mismatched on macOS, and those are
+#     the only two that reach Vec3::cross()/Quat::operator* — both textbook
+#     `a*b - c*d` FMA-contraction bait, defined in types.hpp and inlined
+#     wherever included). This TU never had the flag; on ARM64 (native FMA)
+#     the compiler folds those into a single fused instruction with a
+#     different last bit than x86-64's separate mul+sub, and the resulting
+#     1-bit orientation/right-vector difference cascades into a different
+#     folded hash. Confirmed by two shift-free Fx32 arithmetic reference
+#     tests passing on macOS CI (ruling out the fixed-point core itself)
+#     before landing on this.
 if(MSVC)
   set_source_files_properties(src/integrate.cpp src/drag_tables.cpp src/ball_profiles.cpp
+                               src/sim.cpp
     PROPERTIES COMPILE_OPTIONS "/fp:precise;/fp:except-")
 else()
   set_source_files_properties(src/integrate.cpp src/drag_tables.cpp src/ball_profiles.cpp
+                               src/sim.cpp
     PROPERTIES COMPILE_OPTIONS "-ffp-contract=off;-fno-fast-math")
 endif()
 
