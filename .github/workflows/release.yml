@@ -44,7 +44,7 @@ jobs:
           cp dist/poncelet_single.hpp stage/
           ls -la stage
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: poncelet-${{ matrix.os }}
           path: stage/*
@@ -60,7 +60,7 @@ jobs:
         run: doxygen docs/Doxyfile   # -> docs/api/html
       - name: Zip
         run: cd docs/api && zip -r ../../poncelet-docs-html.zip html
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: poncelet-docs
           path: poncelet-docs-html.zip
