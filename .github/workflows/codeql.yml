@@ -1,0 +1,43 @@
+# poncelet — CodeQL static analysis.
+# SPDX-License-Identifier: MIT
+#
+# Scans the C/C++ core on every push/PR to main, plus a weekly scheduled scan
+# so newly-published CodeQL query improvements catch things a code change
+# never would. Findings land under the repo's Security > Code scanning tab,
+# not as a build failure — this is advisory, not a merge gate.
+name: codeql
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  schedule:
+    - cron: '17 3 * * 1' # Mondays, 03:17 UTC — off the hour, avoids the
+                         # scheduled-workflow thundering herd at :00
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: c-cpp
+          queries: security-and-quality
+
+      # Build only the library itself — tests/bench/examples/docs add
+      # nothing CodeQL needs to see and just slow the scan down.
+      - name: Configure
+        run: cmake -S . -B build -DPONCELET_BUILD_TESTS=OFF -DPONCELET_BUILD_BENCH=OFF -DPONCELET_BUILD_EXAMPLES=OFF -DPONCELET_BUILD_DOCS=OFF
+      - name: Build
+        run: cmake --build build --target poncelet
+
+      - uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:c-cpp"

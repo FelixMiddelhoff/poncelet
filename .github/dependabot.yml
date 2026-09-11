@@ -1,0 +1,14 @@
+# poncelet — Dependabot config.
+# SPDX-License-Identifier: MIT
+#
+# The core library has zero dependencies, so there's no package-manifest
+# ecosystem (npm/pip/etc.) for Dependabot to watch here. What DOES apply:
+# the pinned action versions in .github/workflows/*.yml — this keeps those
+# current (and patched, if an action ever ships a security fix) without
+# anyone having to remember to bump them by hand.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
