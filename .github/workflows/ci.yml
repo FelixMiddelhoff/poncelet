@@ -18,6 +18,15 @@ jobs:
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=${{ matrix.config }} -DPONCELET_SHARED=ON
       - name: Build
         run: cmake --build build --config ${{ matrix.config }}
+      - name: BitExact per-shot digests (informational)
+        # Sim::stateHash(id) per shot, printed unconditionally so a
+        # poncelet_bitexact_golden mismatch on this OS can be diffed
+        # against another OS's run to find which shot actually diverges,
+        # in this same log, without a separate round trip.
+        shell: bash
+        run: |
+          BIN=$(find build -maxdepth 2 -name "poncelet_bench*" -type f | head -1)
+          "$BIN" --bitexact-per-shot || true
       - name: Test
         # Includes the validation suite (poncelet_validation), the throughput
         # gate (poncelet_perf_gate) and the cross-platform BitExact golden

@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT
 #include "poncelet/poncelet.hpp"
 
+#include <array>
 #include <chrono>
 #include <cstdio>
 #include <cstring>
@@ -113,7 +114,20 @@ static int det_check() {
 // fixed-point path or a genuine portability bug to chase down — never a
 // tolerance to relax. Scenario deliberately avoids PrecisionFlag::AdaptiveRKF45
 // (its step-size controller still calls one libm pow per step — see sim.cpp).
-static std::uint64_t bitexact_run() {
+// Diagnostic (added chasing the ARM64 macOS BitExact mismatch, 2026-09-11):
+// the folded digest tells you THAT two runs/platforms disagree, not WHICH of
+// the 5 shots. Pass a PerShotDigests* to bitexact_run() to also fold each
+// shot's own Sim::stateHash(StateId) independently, so `--bitexact-per-shot`
+// can print all 5 and a diff against another platform's output pinpoints the
+// still-divergent shot in one round trip instead of guessing again.
+struct PerShotDigests {
+    std::array<StateId, 5>      ids{};
+    std::array<std::uint64_t, 5> digest{
+        0xCBF29CE484222325ull, 0xCBF29CE484222325ull, 0xCBF29CE484222325ull,
+        0xCBF29CE484222325ull, 0xCBF29CE484222325ull};
+};
+
+static std::uint64_t bitexact_run(PerShotDigests* perShot = nullptr) {
     Environment env;
     SimConfig cfg;
     cfg.determinism = config::Determinism::BitExact;
@@ -139,12 +153,13 @@ static std::uint64_t bitexact_run() {
         lp.direction = dir; lp.speed = spd; lp.tier = tier; lp.precision = pf;
         return sim.spawn(id, lp);
     };
-    fire(bid, {1, 0.03, 0.00}, 820.0, FidelityTier::Integrated,   PrecisionFlag::None);
-    fire(bid, {1, 0.05, 0.02}, 790.0, FidelityTier::AnalyticDrag, PrecisionFlag::None);
-    fire(bid, {1, 0.02, 0.01}, 800.0, FidelityTier::Integrated,   PrecisionFlag::SixDOF);
-    fire(bid, {1, 0.04, 0.00}, 810.0, FidelityTier::Integrated,
+    const StateId h0 = fire(bid, {1, 0.03, 0.00}, 820.0, FidelityTier::Integrated,   PrecisionFlag::None);
+    const StateId h1 = fire(bid, {1, 0.05, 0.02}, 790.0, FidelityTier::AnalyticDrag, PrecisionFlag::None);
+    const StateId h2 = fire(bid, {1, 0.02, 0.01}, 800.0, FidelityTier::Integrated,   PrecisionFlag::SixDOF);
+    const StateId h3 = fire(bid, {1, 0.04, 0.00}, 810.0, FidelityTier::Integrated,
          PrecisionFlag::SpinDrift | PrecisionFlag::Coriolis);
-    fire(aid, {1, 0.15, 0.00}, 70.0,  FidelityTier::Integrated,   PrecisionFlag::None);
+    const StateId h4 = fire(aid, {1, 0.15, 0.00}, 70.0,  FidelityTier::Integrated,   PrecisionFlag::None);
+    if (perShot) perShot->ids = {h0, h1, h2, h3, h4};
 
     EmptyWorld world;
     VectorEventSink sink;
@@ -152,6 +167,10 @@ static std::uint64_t bitexact_run() {
     for (int f = 0; f < 400; ++f) {
         sim.step(1.0 / 200.0, world, sink);
         digest = (digest ^ sim.stateHash()) * 0x100000001B3ull;
+        if (perShot)
+            for (int i = 0; i < 5; ++i)
+                perShot->digest[i] = (perShot->digest[i] ^ sim.stateHash(perShot->ids[i]))
+                                    * 0x100000001B3ull;
     }
     return digest;
 }
@@ -180,11 +199,25 @@ static int bitexact_golden() {
     return (match && repeat) ? 0 : 1;
 }
 
+// See PerShotDigests' comment. Labels match bitexact_run()'s fire() order.
+static int bitexact_per_shot() {
+    static const char* const kLabel[5] = {
+        "shot0 Integrated/None", "shot1 AnalyticDrag/None", "shot2 Integrated/SixDOF",
+        "shot3 Integrated/SpinDrift+Coriolis", "shot4 Integrated/None(arrow)"};
+    PerShotDigests ps;
+    (void)bitexact_run(&ps);
+    for (int i = 0; i < 5; ++i)
+        std::printf("bitexact-per-shot: %-38s digest = %016llx\n",
+                    kLabel[i], (unsigned long long)ps.digest[i]);
+    return 0;
+}
+
 int main(int argc, char** argv) {
     constexpr int kFrames = 120;
     const bool check = argc > 1 && std::strcmp(argv[1], "--check") == 0;
     if (argc > 1 && std::strcmp(argv[1], "--det-check") == 0) return det_check();
     if (argc > 1 && std::strcmp(argv[1], "--bitexact-golden") == 0) return bitexact_golden();
+    if (argc > 1 && std::strcmp(argv[1], "--bitexact-per-shot") == 0) return bitexact_per_shot();
     if (argc > 1 && std::strcmp(argv[1], "--bitexact-print") == 0) {
         std::printf("0x%016llxull\n", (unsigned long long)bitexact_run());
         return 0;
