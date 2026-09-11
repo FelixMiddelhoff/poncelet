@@ -28,6 +28,13 @@ foreach ($Config in @("Debug", "Release")) {
     if ($LASTEXITCODE -ne 0) { throw "cmake --build --config $Config failed" }
 }
 
+# Remove any previously-vendored headers first: Copy-Item -Recurse onto an
+# ALREADY-EXISTING destination directory nests the source folder inside it
+# (.../include/poncelet/poncelet/...) instead of overwriting its contents —
+# a real PowerShell gotcha this script used to get wrong silently (no error,
+# it just left the old headers in place and created the stray nested copy).
+$ThirdPartyPoncelet = Join-Path $ThirdParty "include\poncelet"
+if (Test-Path $ThirdPartyPoncelet) { Remove-Item -Recurse -Force $ThirdPartyPoncelet }
 New-Item -ItemType Directory -Force -Path (Join-Path $ThirdParty "include") | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $ThirdParty "lib\Debug") | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $ThirdParty "lib\Release") | Out-Null
