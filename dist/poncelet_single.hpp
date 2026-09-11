@@ -7806,6 +7806,24 @@ Vec3 right_of_sim(Vec3 dir) {
     return l2 > Real(1e-12) ? r * (Real(1) / std::sqrt(l2)) : Vec3{0, 0, -1};
 }
 
+// Distance-travelled bookkeeping (BitExact-hash-visible, but never fed back
+// into the physics) needs the same FMA immunity as the rest of this TU, and
+// -ffp-contract=off turned out NOT to be enough on its own: a real
+// cross-platform CI run caught macOS's *Debug* build (Apple Clang -O0)
+// still fusing dot()'s `a.x*b.x + a.y*b.y + a.z*b.z` into hardware FMA
+// despite the flag — Release (-O2) was NOT affected, only -O0's codegen
+// path. Since AArch64 has no ISA-level way to disable FMA (it's baseline,
+// unlike x86's optional FMA3), the only fix that can't be silently ignored
+// by a compiler/opt-level quirk is a source-level one: routing each product
+// through a `volatile` forces it to materialise before the add, which
+// makes fusion impossible on any backend at any optimisation level.
+Real dist_no_fma_sim(Vec3 a, Vec3 b) {
+    const volatile Real dx = a.x - b.x, dy = a.y - b.y, dz = a.z - b.z;
+    const volatile Real xx = dx * dx, yy = dy * dy, zz = dz * dz;
+    const Real sum = xx + yy + zz;
+    return std::sqrt(sum);
+}
+
 // Rotate `v` by `ang` radians about unit axis `k` (Rodrigues).
 Vec3 rotate_axis_sim(Vec3 v, Vec3 k, Real ang) {
     const Real cs = std::cos(ang), sn = std::sin(ang);
@@ -8453,7 +8471,7 @@ void Sim::advanceIntegratedBatch(const std::uint32_t* idx, std::size_t n,
                 HitResult hit;
                 if (sweep_segment(world, prev, s.position, frameElapsed0 + tRel, h, hit)) {
                     const Vec3 vImp = vPrev + (s.velocity - vPrev) * hit.t;
-                    s.distanceTravelled_m += length(hit.point - prev);
+                    s.distanceTravelled_m += dist_no_fma_sim(hit.point, prev);
                     const Seconds impact = s.timeAlive_s + h * hit.t;
                     active[li] = 0;
                     if (handleImpact(s, t, world, sink, hit, vImp, impact))
@@ -8461,7 +8479,7 @@ void Sim::advanceIntegratedBatch(const std::uint32_t* idx, std::size_t n,
                     continue;
                 }
 
-                s.distanceTravelled_m += length(s.position - prev);
+                s.distanceTravelled_m += dist_no_fma_sim(s.position, prev);
                 s.timeAlive_s += h;
 
                 if (check_medium_change_sim(env_, world, sink, s)) {
@@ -8640,14 +8658,14 @@ void Sim::advanceHitscan(ProjectileState& s, const ProjectileType& t, Seconds dt
 
     HitResult hit;
     if (sweep_segment(world, prev, next, Real(0), dt, hit)) {
-        s.distanceTravelled_m += length(hit.point - prev);
+        s.distanceTravelled_m += dist_no_fma_sim(hit.point, prev);
         const Seconds impact = t0 + dt * hit.t;
         if (handleImpact(s, t, world, sink, hit, s.velocity, impact))
             advanceRest(s, t, dt - (impact - t0), world, sink, layer + 1);
         return;
     }
     s.position = next;
-    s.distanceTravelled_m += length(next - prev);
+    s.distanceTravelled_m += dist_no_fma_sim(next, prev);
     s.timeAlive_s += dt;
     check_medium_change_sim(env_, world, sink, s);
     check_expiry_sim(sink, s, t);
@@ -8704,13 +8722,13 @@ void Sim::advanceAnalytic(ProjectileState& s, const ProjectileType& t, Seconds d
             const Seconds tHit = tPrev + (ti - tPrev) * hit.t;
             Vec3 hp, hv;
             tr.at(tHit, hp, hv);
-            s.distanceTravelled_m += length(hit.point - prev);
+            s.distanceTravelled_m += dist_no_fma_sim(hit.point, prev);
             if (handleImpact(s, t, world, sink, hit, hv, t0 + tHit))
                 advanceRest(s, t, dt - tHit, world, sink, layer + 1);
             return;
         }
 
-        s.distanceTravelled_m += length(pos - prev);
+        s.distanceTravelled_m += dist_no_fma_sim(pos, prev);
         s.position = pos;
         s.velocity = vel;
         prev = pos;
@@ -8777,7 +8795,7 @@ void Sim::advanceIntegratedAdaptive(ProjectileState& s, const ProjectileType& t,
         HitResult hit;
         if (sweep_segment(world, prev, p5, dt - remaining, hTry, hit)) {
             const Vec3 vImp = s.velocity + (v5 - s.velocity) * hit.t;
-            s.distanceTravelled_m += length(hit.point - prev);
+            s.distanceTravelled_m += dist_no_fma_sim(hit.point, prev);
             const Seconds impact = s.timeAlive_s + hTry * hit.t;
             if (handleImpact(s, t, world, sink, hit, vImp, impact))
                 advanceRest(s, t, dt - (impact - t0), world, sink, layer + 1);
@@ -8786,7 +8804,7 @@ void Sim::advanceIntegratedAdaptive(ProjectileState& s, const ProjectileType& t,
 
         s.position = p5;
         s.velocity = v5;
-        s.distanceTravelled_m += length(p5 - prev);
+        s.distanceTravelled_m += dist_no_fma_sim(p5, prev);
         s.timeAlive_s += hTry;
         remaining     -= hTry;
         h = hTry * fac; // grow (or shrink) for the next step
@@ -8877,7 +8895,7 @@ void Sim::advanceSixDOF(ProjectileState& s, const ProjectileType& t, Seconds dt,
             if (sweep_segment(world, prev, rs.pos, dt - remaining, h, hit)) {
                 const Vec3 vImp = vPrev + (rs.vel - vPrev) * hit.t;
                 writeBack(alpha);
-                s.distanceTravelled_m += length(hit.point - prev);
+                s.distanceTravelled_m += dist_no_fma_sim(hit.point, prev);
                 const Seconds impact = s.timeAlive_s + h * hit.t;
                 if (handleImpact(s, t, world, sink, hit, vImp, impact))
                     advanceRest(s, t, dt - (impact - t0), world, sink, layer + 1);
@@ -8889,7 +8907,7 @@ void Sim::advanceSixDOF(ProjectileState& s, const ProjectileType& t, Seconds dt,
             writeBack(alpha);
             if (alpha > Real(1.0471975512) && (s.flags & kFlagTumbling) == 0)
                 s.flags |= kFlagTumbling;   // > 60 deg — no longer stable
-            s.distanceTravelled_m += length(rs.pos - prev);
+            s.distanceTravelled_m += dist_no_fma_sim(rs.pos, prev);
             s.timeAlive_s += h;
             tRel          += h;
             remaining     -= h;
@@ -8957,14 +8975,14 @@ void Sim::advanceIntegrated(ProjectileState& s, const ProjectileType& t, Seconds
             HitResult hit;
             if (sweep_segment(world, prev, s.position, dt - remaining, h, hit)) {
                 const Vec3 vImp = vPrev + (s.velocity - vPrev) * hit.t;
-                s.distanceTravelled_m += length(hit.point - prev);
+                s.distanceTravelled_m += dist_no_fma_sim(hit.point, prev);
                 const Seconds impact = s.timeAlive_s + h * hit.t;
                 if (handleImpact(s, t, world, sink, hit, vImp, impact))
                     advanceRest(s, t, dt - (impact - t0), world, sink, layer + 1);
                 return;
             }
 
-            s.distanceTravelled_m += length(s.position - prev);
+            s.distanceTravelled_m += dist_no_fma_sim(s.position, prev);
             s.timeAlive_s += h;
             tRel          += h;
             remaining     -= h;
