@@ -9,9 +9,10 @@ project(poncelet_quickstart LANGUAGES CXX)
 
 include(FetchContent)
 
-# poncelet has no public remote yet — set PONCELET_QUICKSTART_SOURCE_DIR to
-# a local checkout to try this today. Once a real remote + tagged release
-# exists, replace the GIT_TAG line below with it; nothing else here changes.
+# poncelet has a public remote now but no tagged release yet — pin GIT_TAG
+# to `main` until the first `vX.Y.Z` tag exists, then switch to that tag
+# (nothing else here changes). Set PONCELET_QUICKSTART_SOURCE_DIR to a local
+# checkout instead to try this without a network round-trip.
 if(DEFINED ENV{PONCELET_QUICKSTART_SOURCE_DIR})
   # file(TO_CMAKE_PATH ...) so a Windows backslash path doesn't get read as a
   # CMake string escape sequence (e.g. "\C" is invalid).
@@ -19,8 +20,8 @@ if(DEFINED ENV{PONCELET_QUICKSTART_SOURCE_DIR})
   FetchContent_Declare(poncelet SOURCE_DIR "${PONCELET_LOCAL_SOURCE_DIR}")
 else()
   FetchContent_Declare(poncelet
-    GIT_REPOSITORY https://github.com/<owner>/poncelet.git # TODO: real remote
-    GIT_TAG        v1.0.0)
+    GIT_REPOSITORY https://github.com/FelixMiddelhoff/poncelet.git
+    GIT_TAG        main) # TODO: pin to a vX.Y.Z tag once one exists
 endif()
 
 # A pure consumer only needs the library, not poncelet's own test/bench/example
