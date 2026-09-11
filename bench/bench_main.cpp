@@ -253,6 +253,36 @@ static int bitexact_frame_trace() {
         std::printf("bitexact-frame-trace: frame %d  shot2 = %016llx  shot3 = %016llx\n",
                     f, (unsigned long long)sim.stateHash(h2),
                     (unsigned long long)sim.stateHash(h3));
+        // frame 8 (and 25) mismatch in isolation — the very next frame
+        // matches again, unlike a real trajectory divergence (which RK4
+        // would carry forward). That points at an *informational* field
+        // that doesn't feed back into next-frame physics: angleOfAttack_rad,
+        // orientation or spinPhase_rad, computed fresh each frame from
+        // nose/velocity via acc_acos/fx_sin_full — a tiny input difference
+        // could cross a LUT interpolation cell boundary on just one frame
+        // without perturbing the trajectory itself. Dump those plus nose
+        // (orientation-derived) around the frame-8 blip to check.
+        if (f == 6 || f == 7 || f == 8 || f == 9) {
+            const ProjectileState& s2 = sim.state(h2);
+            std::printf("bitexact-frame-trace: frame %d  shot2.orient=%016llx,%016llx,%016llx,%016llx"
+                       " angVel=%016llx,%016llx,%016llx aoa=%016llx spinPhase=%016llx"
+                       " pos=%016llx,%016llx,%016llx vel=%016llx,%016llx,%016llx\n",
+                       f, (unsigned long long)bits(s2.orientation.w),
+                       (unsigned long long)bits(s2.orientation.x),
+                       (unsigned long long)bits(s2.orientation.y),
+                       (unsigned long long)bits(s2.orientation.z),
+                       (unsigned long long)bits(s2.angVel_radps.x),
+                       (unsigned long long)bits(s2.angVel_radps.y),
+                       (unsigned long long)bits(s2.angVel_radps.z),
+                       (unsigned long long)bits(s2.angleOfAttack_rad),
+                       (unsigned long long)bits(s2.spinPhase_rad),
+                       (unsigned long long)bits(s2.position.x),
+                       (unsigned long long)bits(s2.position.y),
+                       (unsigned long long)bits(s2.position.z),
+                       (unsigned long long)bits(s2.velocity.x),
+                       (unsigned long long)bits(s2.velocity.y),
+                       (unsigned long long)bits(s2.velocity.z));
+        }
     }
     (void)bits;
     return 0;
