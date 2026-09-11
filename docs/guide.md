@@ -20,8 +20,9 @@ walkthrough, and a reference entry with a short example for every public call.
 > tag when the whole Phase 19 set is settled. Two capabilities are
 > tracked follow-ups, called out where they are relevant: explicit 4/8-wide
 > **SIMD intrinsics** (the portable SoA batch path is in) and extending the
-> **`BitExact`** fixed-point core to the guidance law and the RKF45 step
-> controller (the integrator itself is fixed-point). The G1/G7
+> **`BitExact`** fixed-point core to the guidance law (the integrator itself,
+> including the `AdaptiveRKF45` step-size controller, is fixed-point). The
+> G1/G7
 > drag tables are the full-resolution BRL/McCoy standard curves (JBM
 > `mcg1.txt` / `mcg7.txt`); a single-BC standard-projectile model still can't
 > track an individual bullet's post-transonic drag rise, so supply a
@@ -1630,8 +1631,12 @@ deterministic bitwise `sqrt`, uniform transcendental LUTs for `sin`/`acos`/`exp`
 Two things stay `double` and so are per-platform-deterministic but not
 cross-platform bit-identical under `BitExact`: the per-type drag LUT compiled at
 `registerType()` (a one-time cost; ship the compiled table if you need it
-identical), and — for the opt-in `AdaptiveRKF45` tier — the step-size
-controller's `pow`, plus the guidance law's external-acceleration term.
+identical), and the guidance law's external-acceleration term (`PrecisionFlag`s
+aside, a guided munition's steering command is not yet on the fixed-point
+path). The opt-in `AdaptiveRKF45` tier's step-size controller *is* fixed-point
+now — its `ratio^0.2` runs through a dedicated LUT (`fx_pow_ratio02`) under
+`BitExact` instead of `std::pow`, closing what used to be the one remaining
+libm call in that path.
 
 If you need reproducible runs and can't use `BitExact`: keep `dt` and
 `fixedStep_s` constant, feed inputs in a fixed order, and pin `rngSeed`.

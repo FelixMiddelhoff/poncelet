@@ -153,12 +153,12 @@ namespace config {
 //                    Enough for local replay / demo recording.
 //   BitExact      — cross-platform bit-identical: the integrator runs on the
 //                   Q32.32 fixed-point core (deterministic sqrt + transcendental
-//                   LUTs), so the trajectory folds to the same bits on every
-//                   OS / compiler / optimisation level. The per-type drag LUT is
-//                   still compiled in double at registerType(); see
-//                   docs/ballistics-phase-plan.md §3.6. AdaptiveRKF45's
-//                   step-size controller keeps one libm pow/step — stable per
-//                   platform, not cross-platform-guaranteed for that opt-in tier.
+//                   LUTs, including the AdaptiveRKF45 step-size controller's
+//                   pow via a dedicated LUT), so the trajectory folds to the
+//                   same bits on every OS / compiler / optimisation level. The
+//                   per-type drag LUT is still compiled in double at
+//                   registerType(), and the guidance law's external-
+//                   acceleration term is not yet on the fixed-point path.
 enum class Determinism { Loose, PlatformStable, BitExact };
 
 } // namespace config

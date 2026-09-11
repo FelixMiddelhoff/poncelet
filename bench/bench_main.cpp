@@ -112,8 +112,11 @@ static int det_check() {
 // kBitExactGolden was captured on x86-64 / MSVC and is committed. CI runs this
 // on Linux + macOS too; a mismatch is either a real regression in the
 // fixed-point path or a genuine portability bug to chase down — never a
-// tolerance to relax. Scenario deliberately avoids PrecisionFlag::AdaptiveRKF45
-// (its step-size controller still calls one libm pow per step — see sim.cpp).
+// tolerance to relax. Scenario still avoids PrecisionFlag::AdaptiveRKF45 — not
+// because of its step-size controller's std::pow anymore (that's a fixed-point
+// LUT now, see integrate.cpp's pow_ratio02 / bitexact_rkf45_check below), but
+// because adding a 6th shot here would change this committed golden's value
+// and there's no 3-OS-verified reference for that combination yet.
 // Diagnostic (added chasing the ARM64 macOS BitExact mismatch, 2026-09-11):
 // the folded digest tells you THAT two runs/platforms disagree, not WHICH of
 // the 5 shots. Pass a PerShotDigests* to bitexact_run() to also fold each
@@ -199,6 +202,57 @@ static int bitexact_golden() {
     return (match && repeat) ? 0 : 1;
 }
 
+// AdaptiveRKF45's step-size controller used a bare std::pow(ratio, 0.2)
+// regardless of Determinism::BitExact — the golden scenario above
+// deliberately avoids PrecisionFlag::AdaptiveRKF45 for exactly that reason
+// (see bitexact_run()'s comment). Now that the controller routes through a
+// fixed-point LUT under BitExact (integrate.cpp's pow_ratio02, wired in by
+// sim.cpp's advanceIntegratedAdaptive), this checks the one thing a single
+// machine actually CAN prove locally: the same scene run twice folds to the
+// same digest. That's the same bar poncelet_det_check holds PlatformStable
+// to — not a claim of cross-platform bit-exactness on its own (that would
+// need the same real-CI-round-trip verification the golden digest above
+// got), but it is a genuine regression gate: this would have caught the
+// original bare-libm-pow gap (a machine where std::pow itself isn't
+// perfectly repeatable run-to-run would fail it) and will catch this fix
+// ever regressing.
+static std::uint64_t bitexact_rkf45_run() {
+    Environment env;
+    SimConfig cfg;
+    cfg.determinism = config::Determinism::BitExact;
+    Sim sim(env, cfg);
+
+    ProjectileType bullet;
+    bullet.id = "bx_rkf45_308"; bullet.klass = ProjectileClass::Bullet;
+    bullet.dragModel = DragModel::G7; bullet.ballisticCoefficient = 0.243;
+    bullet.mass_kg = 0.0113; bullet.refDiameter_m = 0.00782;
+    const TypeId bid = sim.registerType(bullet);
+
+    LaunchParams lp;
+    lp.position = {0, 2.0, 0};
+    lp.direction = {1, 0.03, 0.01}; lp.speed = 820.0;
+    lp.tier = FidelityTier::Integrated; lp.precision = PrecisionFlag::AdaptiveRKF45;
+    sim.spawn(bid, lp);
+
+    EmptyWorld world;
+    VectorEventSink sink;
+    std::uint64_t digest = 0xCBF29CE484222325ull;
+    for (int f = 0; f < 400; ++f) {
+        sim.step(1.0 / 200.0, world, sink);
+        digest = (digest ^ sim.stateHash()) * 0x100000001B3ull;
+    }
+    return digest;
+}
+
+static int bitexact_rkf45_check() {
+    const std::uint64_t a = bitexact_rkf45_run();
+    const std::uint64_t b = bitexact_rkf45_run();
+    std::printf("bitexact-rkf45-check: run A = %016llx  run B = %016llx  %s\n",
+                (unsigned long long)a, (unsigned long long)b,
+                a == b ? "MATCH" : "DIVERGED");
+    return a == b ? 0 : 1;
+}
+
 // Chasing the macOS-Debug-only residual mismatch (Release is now fixed by
 // the sim.cpp FMA-contraction-off flag; Debug's shot2/shot3 digests are
 // unaffected by that same flag — so it's a second, distinct cause). The
@@ -276,6 +330,7 @@ int main(int argc, char** argv) {
     const bool check = argc > 1 && std::strcmp(argv[1], "--check") == 0;
     if (argc > 1 && std::strcmp(argv[1], "--det-check") == 0) return det_check();
     if (argc > 1 && std::strcmp(argv[1], "--bitexact-golden") == 0) return bitexact_golden();
+    if (argc > 1 && std::strcmp(argv[1], "--bitexact-rkf45-check") == 0) return bitexact_rkf45_check();
     if (argc > 1 && std::strcmp(argv[1], "--bitexact-per-shot") == 0) return bitexact_per_shot();
     if (argc > 1 && std::strcmp(argv[1], "--bitexact-frame-trace") == 0) return bitexact_frame_trace();
     if (argc > 1 && std::strcmp(argv[1], "--bitexact-print") == 0) {

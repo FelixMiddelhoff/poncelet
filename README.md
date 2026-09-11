@@ -123,7 +123,8 @@ and a zipped Doxygen reference to a GitHub Release.
 
 Tracked follow-ups (called out in the guide where relevant): explicit 4/8-wide
 SIMD intrinsics (the portable SoA batch path is in) and extending the
-fixed-point core to the guidance law and the RKF45 step-size controller. The
+fixed-point core to the guidance law (the `AdaptiveRKF45` step-size
+controller is fixed-point now too — see Determinism below). The
 G1/G7 drag tables are the full-resolution BRL/McCoy standard curves (JBM
 `mcg1.txt` / `mcg7.txt`); for match-grade sub-Mach-1 work supply a
 Doppler-derived `CustomCurve`, since a single-BC standard-projectile model
@@ -177,8 +178,8 @@ for the same platform + compiler + inputs. `BitExact` runs the integrator on a
 Q32.32 fixed-point core (deterministic sqrt + transcendental LUTs + fixed-point
 drag sampling), so the trajectory folds to the same bits on every OS / compiler
 / optimisation level. The per-type drag LUT is still compiled in double at
-`registerType()`; the guidance law and the RKF45 step-size controller are not
-yet fixed-point (see the guide).
+`registerType()`, and the guidance law is not yet fixed-point (see the guide);
+the `AdaptiveRKF45` step-size controller is.
 
 `Sim::stateHash()` is a 64-bit FNV-1a digest of every live shot's full state
 (hashed field by field, no struct padding) — sample it per frame for a rollback

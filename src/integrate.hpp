@@ -162,6 +162,12 @@ void step_rkck(const FlightModel& m, Vec3 pos, Vec3 vel, Seconds tRel, Seconds h
                Vec3& pos5, Vec3& vel5, Real& posErr_m, Real& velErr_mps,
                bool bitExact = false);
 
+// ratio^0.2 for the AdaptiveRKF45 step-size controller's
+// fac = 0.9*ratio^0.2 (sim.cpp's advanceIntegratedAdaptive). `bitExact` ⇒ a
+// fixed-point LUT (bit-identical on every platform) instead of std::pow —
+// closes the one remaining libm call in the AdaptiveRKF45 path.
+Real pow_ratio02(Real ratio, bool bitExact = false);
+
 // Deterministic sub-step count for advancing `dt` seconds from a state with
 // the given velocity and (start-of-interval) acceleration. Bounds the
 // semi-implicit position error by `posTol_m` (½·|a|·h² ≤ tol) and the

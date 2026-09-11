@@ -36,6 +36,15 @@ TABLES = [
     # spread wide; value is w**(-0.68) = t**(-0.17). w = 0 is singular, so
     # index 0 is clamped to the value at index 1. t ≤ 300 ⇒ w ≤ 4.16 < 4.5.
     ("pow_neg017", 0.0,  4.5,     2048, lambda w: w ** (-0.68) if w > 0 else 0.0),
+    # t**0.2 for the AdaptiveRKF45 step-size controller (fac = 0.9*ratio**0.2,
+    # then clamped to [0.2, 4.0] — see sim.cpp's advanceIntegratedAdaptive).
+    # Caller clamps the input ratio to [1e-4, 1e4] first: outside that range
+    # fac already saturates against its own clamp regardless of the exact
+    # pow() value, so nothing real is lost. Sampled on w = t**0.25 (two
+    # nested exact sqrts), same trick as pow_neg017, so 8 orders of
+    # magnitude in t become a tractable ~2 in w (0.1..10); value is
+    # w**0.8 = t**0.2.
+    ("pow_ratio02", 0.1,  10.0,    2048, lambda w: w ** 0.8),
 ]
 
 def emit():

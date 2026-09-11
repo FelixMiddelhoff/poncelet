@@ -221,6 +221,14 @@ if(PONCELET_BUILD_BENCH)
     # / optimisation level. A mismatch is a regression or a portability bug —
     # never a tolerance to relax.
     add_test(NAME poncelet_bitexact_golden COMMAND poncelet_bench --bitexact-golden)
+    # AdaptiveRKF45 under BitExact: its step-size controller now routes
+    # ratio^0.2 through a fixed-point LUT instead of std::pow (see
+    # integrate.cpp's pow_ratio02), closing the one libm call that used to
+    # keep this precision flag out of the golden scenario above. Same-machine
+    # repeatability gate (not a cross-platform golden — this flag isn't in
+    # the 3-OS-verified scenario, so there's no committed reference digest
+    # for it yet); still a real regression gate for this specific fix.
+    add_test(NAME poncelet_bitexact_rkf45_check COMMAND poncelet_bench --bitexact-rkf45-check)
   endif()
 endif()
 

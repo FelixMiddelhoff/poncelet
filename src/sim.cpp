@@ -1074,8 +1074,12 @@ void Sim::advanceIntegratedAdaptive(ProjectileState& s, const ProjectileType& t,
                           bitExact_);
 
         // Step-size controller: standard 0.9·(tol/err)^(1/5), clamped.
+        // pow_ratio02(..., bitExact_) closes the one libm call this
+        // controller used to make unconditionally — a fixed-point LUT
+        // under BitExact instead of std::pow, bit-identical on every
+        // platform (see integrate.hpp/fixed_lut.hpp's fx_pow_ratio02).
         const Real ratio = pErr > Real(0) ? tol / pErr : Real(8);
-        const Real fac = std::min(std::max(Real(0.9) * std::pow(ratio, Real(0.2)),
+        const Real fac = std::min(std::max(Real(0.9) * detail::pow_ratio02(ratio, bitExact_),
                                            Real(0.2)), Real(4.0));
 
         if (pErr > tol && hTry > Real(2e-7)) {

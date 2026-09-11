@@ -410,6 +410,16 @@ void step_rkck(const FlightModel& m, Vec3 pos, Vec3 vel, Seconds tRel, Seconds h
     else    Core<Real>::step_rkck(m, pos, vel, tRel, h, pos5, vel5, posErr_m, velErr_mps);
 }
 
+// AdaptiveRKF45's step-size controller (sim.cpp's advanceIntegratedAdaptive)
+// used a bare std::pow(ratio, 0.2) regardless of bitExact_ — the one libm
+// call left in that path, flagged as a known gap since Part B shipped.
+// Dispatches the same way every other Acc-templated entry point here does;
+// the Fx32 side is a LUT (fixed_lut.hpp's fx_pow_ratio02), not a real
+// std::pow, so it's bit-identical on every platform.
+Real pow_ratio02(Real ratio, bool bx) {
+    return bx ? to_real(acc_pow_ratio02(Fx32(ratio))) : acc_pow_ratio02(ratio);
+}
+
 void step_rigid_rk4(const RigidModel& m, RigidState& s, Seconds tRel, Seconds h,
                     Real& alpha_out, bool bx) {
     if (bx) Core<Fx32>::step_rigid_rk4(m, s, tRel, h, alpha_out);

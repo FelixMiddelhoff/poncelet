@@ -77,6 +77,19 @@ inline Fx32 fx_pow_neg017(Fx32 t) {
                         fx32_sqrt(fx32_sqrt(t)));
 }
 
+// t^0.2 for the AdaptiveRKF45 step-size controller (sim.cpp's
+// advanceIntegratedAdaptive: fac = 0.9*ratio^0.2, clamped to [0.2, 4.0]).
+// Clamped to [1e-4, 1e4] first — outside that, fac's own clamp already
+// saturates identically regardless of the exact value, so nothing is lost.
+// Sampled on w = t^0.25 the same way as fx_pow_neg017: value(w) = w^0.8.
+inline Fx32 fx_pow_ratio02(Fx32 t) {
+    const Fx32 lo(0.0001), hi(10000.0);
+    if (t < lo) t = lo;
+    if (t > hi) t = hi;
+    return fxlut_sample(kFxLut_pow_ratio02, kFxLutData_pow_ratio02,
+                        fx32_sqrt(fx32_sqrt(t)));
+}
+
 // --- Full-range periodic sin/cos, built on the [0, π] table above ---------
 //
 // fx_sin's domain is [0, π] — enough for a total angle of attack, but the

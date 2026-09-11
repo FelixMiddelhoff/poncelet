@@ -4448,6 +4448,40 @@ PON_TEST(fx_pow_neg017_matches_std) {
     }
 }
 
+PON_TEST(fx_pow_ratio02_matches_std) {
+    using pon::detail::Fx32; using pon::detail::fx_pow_ratio02;
+    // Domain matches sim.cpp's AdaptiveRKF45 controller's own clamp
+    // ([1e-4, 1e4]) — the caller never passes anything outside it.
+    for (double t : {1.0e-4, 1.0e-3, 0.01, 0.1, 0.5, 1.0, 3.0, 10.0, 100.0, 1.0e3, 1.0e4}) {
+        const double got  = fx_pow_ratio02(Fx32::from_double(t)).to_double();
+        const double want = std::pow(t, 0.2);
+        CHECK(std::fabs(got - want) <= 5.0e-3 * want + 1.0e-6);
+    }
+    // Clamping: below/above the domain reads as the domain edge, not garbage.
+    CHECK(std::fabs(fx_pow_ratio02(Fx32::from_double(1.0e-9)).to_double() -
+                    fx_pow_ratio02(Fx32::from_double(1.0e-4)).to_double()) <= 1.0e-6);
+    CHECK(std::fabs(fx_pow_ratio02(Fx32::from_double(1.0e9)).to_double() -
+                    fx_pow_ratio02(Fx32::from_double(1.0e4)).to_double()) <= 1.0e-6);
+}
+
+// integrate.cpp's pow_ratio02(ratio, bitExact) dispatch: the BitExact branch
+// must actually be the LUT (not accidentally always std::pow) — same value
+// as fx_pow_ratio02 directly, and bit-deterministic across repeated calls
+// (the whole point of routing this through Fx32 instead of libm).
+PON_TEST(pow_ratio02_dispatch_uses_the_lut_under_bitexact) {
+    using pon::detail::Fx32; using pon::detail::pow_ratio02;
+    for (double ratio : {0.05, 1.0, 50.0, 500.0}) {
+        const double viaDispatch = pow_ratio02(ratio, /*bitExact=*/true);
+        const double viaLut = pon::detail::fx_pow_ratio02(Fx32::from_double(ratio)).to_double();
+        CHECK(viaDispatch == viaLut);
+    }
+    const double bits = pow_ratio02(37.0, true);
+    for (int i = 0; i < 32; ++i) CHECK(pow_ratio02(37.0, true) == bits);
+
+    // Real (non-BitExact) branch is still plain std::pow, unchanged.
+    CHECK(std::fabs(pow_ratio02(4.0, false) - std::pow(4.0, 0.2)) <= 1.0e-12);
+}
+
 PON_TEST(fx_lut_sampling_is_bit_deterministic) {
     using pon::detail::Fx32;
     const Fx32 a = Fx32::from_double(1.2345);
