@@ -258,6 +258,36 @@ static int bitexact_frame_trace() {
                        (unsigned long long)bits(s3.velocity.x),
                        (unsigned long long)bits(s3.velocity.y),
                        (unsigned long long)bits(s3.velocity.z));
+            // pos/vel alone don't explain a hash mismatch with matching bits
+            // above — dump every OTHER field Sim::stateHash(id) walks
+            // (sim.cpp's visit_state) so the actual culprit field shows up in
+            // a diff instead of being reasoned about.
+            std::printf("bitexact-frame-trace: frame %d  shot3.spin=%016llx"
+                       " spinAxis=%016llx,%016llx,%016llx mediumId=%08x"
+                       " dist=%016llx t=%016llx flags=%08x alive=%d\n",
+                       f, (unsigned long long)bits(s3.spin_radps),
+                       (unsigned long long)bits(s3.spinAxis.x),
+                       (unsigned long long)bits(s3.spinAxis.y),
+                       (unsigned long long)bits(s3.spinAxis.z),
+                       (unsigned)s3.mediumId,
+                       (unsigned long long)bits(s3.distanceTravelled_m),
+                       (unsigned long long)bits(s3.timeAlive_s),
+                       (unsigned)s3.flags, (int)s3.alive);
+            std::printf("bitexact-frame-trace: frame %d  shot3.orient=%016llx,%016llx,%016llx,%016llx"
+                       " angVel=%016llx,%016llx,%016llx aoa=%016llx spinPhase=%016llx"
+                       " extAccel=%016llx,%016llx,%016llx\n",
+                       f, (unsigned long long)bits(s3.orientation.w),
+                       (unsigned long long)bits(s3.orientation.x),
+                       (unsigned long long)bits(s3.orientation.y),
+                       (unsigned long long)bits(s3.orientation.z),
+                       (unsigned long long)bits(s3.angVel_radps.x),
+                       (unsigned long long)bits(s3.angVel_radps.y),
+                       (unsigned long long)bits(s3.angVel_radps.z),
+                       (unsigned long long)bits(s3.angleOfAttack_rad),
+                       (unsigned long long)bits(s3.spinPhase_rad),
+                       (unsigned long long)bits(s3.externalAccel_mps2.x),
+                       (unsigned long long)bits(s3.externalAccel_mps2.y),
+                       (unsigned long long)bits(s3.externalAccel_mps2.z));
         }
     }
     return 0;
