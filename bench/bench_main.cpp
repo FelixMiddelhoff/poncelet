@@ -234,6 +234,13 @@ static int bitexact_frame_trace() {
     const StateId h3 = fire(bid, {1, 0.04, 0.00}, 810.0, FidelityTier::Integrated,
                             PrecisionFlag::SpinDrift | PrecisionFlag::Coriolis);
 
+    auto bits = [](double v) {
+        static_assert(sizeof(double) == sizeof(std::uint64_t));
+        std::uint64_t u;
+        std::memcpy(&u, &v, sizeof(u));
+        return u;
+    };
+
     EmptyWorld world;
     VectorEventSink sink;
     for (int f = 0; f < 8; ++f) {
@@ -241,6 +248,17 @@ static int bitexact_frame_trace() {
         std::printf("bitexact-frame-trace: frame %d  shot2 = %016llx  shot3 = %016llx\n",
                     f, (unsigned long long)sim.stateHash(h2),
                     (unsigned long long)sim.stateHash(h3));
+        if (f == 5 || f == 6) {
+            const ProjectileState& s3 = sim.state(h3);
+            std::printf("bitexact-frame-trace: frame %d  shot3.pos = %016llx %016llx %016llx"
+                       "  shot3.vel = %016llx %016llx %016llx\n",
+                       f, (unsigned long long)bits(s3.position.x),
+                       (unsigned long long)bits(s3.position.y),
+                       (unsigned long long)bits(s3.position.z),
+                       (unsigned long long)bits(s3.velocity.x),
+                       (unsigned long long)bits(s3.velocity.y),
+                       (unsigned long long)bits(s3.velocity.z));
+        }
     }
     return 0;
 }
