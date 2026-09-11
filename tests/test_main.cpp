@@ -4270,6 +4270,114 @@ PON_TEST(fx32_sqrt_is_bit_deterministic) {
     CHECK(std::fabs(fx32_sqrt(x).to_double() - 1.4142135623730951) <= 3.0e-9);
 }
 
+// Chasing the macOS/ARM64-only cross-platform mismatch on the SixDOF and
+// SpinDrift+Coriolis shots (both, and only, the shots that exercise cross()
+// on negative Fx32 operands): `Fx32::operator*`'s `#else` branch does
+// `static_cast<std::int64_t>(p >> 32)` on a possibly-negative `__int128`.
+// Right-shift of a negative signed value is implementation-defined pre-C++20
+// — in practice always arithmetic/sign-propagating, but that is an
+// assumption, not something the standard (at whatever -std= this TU builds
+// under) guarantees identical across every compiler/architecture. This test
+// cross-checks the operator's actual runtime result against an INDEPENDENT
+// reference that never performs a signed right-shift of a negative wide
+// integer — it multiplies as unsigned, shifts logically (well-defined for
+// unsigned), and manually sign-extends the top 32 bits — so if Apple
+// Clang's AArch64 codegen for the native `>>` ever disagreed with the
+// mathematical floor-shift, this would catch it independently of whatever
+// the operator itself does.
+// Portable 64x64->128 unsigned multiply via 32-bit limbs — no __int128, no
+// compiler intrinsic, no shift of a signed value anywhere. `hi`/`lo` form the
+// 128-bit product mag = hi*2^64 + lo.
+inline void fx32_test_umul64(std::uint64_t a, std::uint64_t b,
+                             std::uint64_t& hi, std::uint64_t& lo) {
+    const std::uint64_t aLo = static_cast<std::uint32_t>(a);
+    const std::uint64_t aHi = a >> 32;
+    const std::uint64_t bLo = static_cast<std::uint32_t>(b);
+    const std::uint64_t bHi = b >> 32;
+
+    const std::uint64_t t0 = aLo * bLo;
+    const std::uint64_t t1 = aHi * bLo + (t0 >> 32);
+    const std::uint64_t t2 = aLo * bHi + (t1 & 0xFFFFFFFFull);
+    hi = aHi * bHi + (t1 >> 32) + (t2 >> 32);
+    lo = (t2 << 32) | (t0 & 0xFFFFFFFFull);
+}
+
+// (a*b) >> 32 with correct floor semantics for negative results, computed
+// entirely from the unsigned magnitude product above — never a right-shift
+// of a negative (or wide/`__int128`) value. Independent of whatever codegen
+// `Fx32::operator*`'s native `p >> 32` on a signed `__int128` produces.
+inline std::int64_t fx32_test_ref_mul(std::int64_t a, std::int64_t b) {
+    const bool neg = (a < 0) != (b < 0);
+    const std::uint64_t ua = a < 0 ? (~static_cast<std::uint64_t>(a) + 1)
+                                   : static_cast<std::uint64_t>(a);
+    const std::uint64_t ub = b < 0 ? (~static_cast<std::uint64_t>(b) + 1)
+                                   : static_cast<std::uint64_t>(b);
+    std::uint64_t hi, lo;
+    fx32_test_umul64(ua, ub, hi, lo);
+    // shift the 128-bit magnitude right by 32 (fits our test ranges in 64 bits)
+    const std::uint64_t mag = (hi << 32) | (lo >> 32);
+    const bool exact = (lo & 0xFFFFFFFFull) == 0;
+    std::int64_t r = static_cast<std::int64_t>(mag);
+    if (neg) r = exact ? -r : -r - 1;
+    return r;
+}
+
+PON_TEST(fx32_multiply_matches_shift_free_reference_for_negative_operands) {
+    using pon::detail::Fx32;
+
+    const std::int64_t kValues[] = {
+        0, 1, -1, 1000000, -1000000,
+        313094,            // ~ earth-rate omega component, Q32.32 raw
+        -313094,
+        3435973836LL,      // ~0.8 in raw Q32.32
+        -3435973836LL,
+        3435973836000LL,   // ~800 m/s in raw Q32.32 (velocity-scale)
+        -3435973836000LL,
+        (std::int64_t(1) << 40) - 1,
+        -((std::int64_t(1) << 40) - 1),
+    };
+    for (std::int64_t a : kValues) {
+        for (std::int64_t b : kValues) {
+            const Fx32 fa = Fx32::from_raw(a), fb = Fx32::from_raw(b);
+            const std::int64_t got  = (fa * fb).raw;
+            const std::int64_t want = fx32_test_ref_mul(a, b);
+            CHECK(got == want);
+        }
+    }
+}
+
+// Same idea for cross(): the operation shot2 (SixDOF) and shot3
+// (SpinDrift+Coriolis) exercise that shot0/1/4 never do. Builds two AVec3<Fx32>
+// with a realistic mix of signs/magnitudes (velocity-scale and earth-rate-scale)
+// and checks every component against the shift-free reference multiply/subtract.
+PON_TEST(fx32_cross_matches_shift_free_reference) {
+    using pon::detail::Fx32; using pon::detail::AVec3; using pon::detail::cross;
+
+    auto refMul = fx32_test_ref_mul;
+    auto refSub = [](std::int64_t x, std::int64_t y) -> std::int64_t {
+        return static_cast<std::int64_t>(static_cast<std::uint64_t>(x) -
+                                         static_cast<std::uint64_t>(y));
+    };
+
+    const Fx32 omega[3] = {Fx32::from_raw(313094), Fx32::from_raw(0),
+                           Fx32::from_raw(-27)}; // earth-rate-scale, one exactly 0
+    const Fx32 vel[3]   = {Fx32::from_raw(3435973836000LL),
+                           Fx32::from_raw(-859993459000LL),
+                           Fx32::from_raw(214998364750LL)}; // velocity-scale, mixed sign
+
+    const AVec3<Fx32> a{omega[0], omega[1], omega[2]};
+    const AVec3<Fx32> b{vel[0], vel[1], vel[2]};
+    const AVec3<Fx32> got = cross(a, b);
+
+    const std::int64_t wantX = refSub(refMul(omega[1].raw, vel[2].raw), refMul(omega[2].raw, vel[1].raw));
+    const std::int64_t wantY = refSub(refMul(omega[2].raw, vel[0].raw), refMul(omega[0].raw, vel[2].raw));
+    const std::int64_t wantZ = refSub(refMul(omega[0].raw, vel[1].raw), refMul(omega[1].raw, vel[0].raw));
+
+    CHECK(got.x.raw == wantX);
+    CHECK(got.y.raw == wantY);
+    CHECK(got.z.raw == wantZ);
+}
+
 // --- Part B4: fixed-point transcendental LUTs ------------------------------
 
 PON_TEST(fx_sin_matches_std_over_zero_to_pi) {
