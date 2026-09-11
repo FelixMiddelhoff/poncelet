@@ -1,0 +1,88 @@
+name: release
+
+# Runs on `git tag v*` (pushed after the owner is satisfied with `main`, per
+# the version policy — see docs/guide.md). Builds + tests the same 3-OS
+# matrix as ci.yml, then attaches the static libs, the shared libs,
+# dist/poncelet_single.hpp, and a zipped Doxygen API reference to a GitHub
+# Release — a real download page instead of a source-only tag.
+on:
+  push:
+    tags: [ 'v*' ]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DPONCELET_SHARED=ON
+      - name: Build
+        run: cmake --build build --config Release
+      - name: Test
+        run: ctest --test-dir build -C Release --output-on-failure
+
+      - name: Stage artifacts
+        shell: bash
+        # The static lib is poncelet.lib (MSVC, multi-config -> build/Release/)
+        # or libponcelet.a (single-config Make/Ninja -> build/); the shared
+        # lib is poncelet_shared.{dll,lib} / libponcelet_shared.{so,dylib}.
+        # `find` (not a fixed path) so this doesn't care which generator CMake
+        # picked on a given OS.
+        run: |
+          mkdir -p stage
+          find build \( -iname 'libponcelet.a' -o -iname 'poncelet.lib' \
+                      -o -iname 'libponcelet_shared.so' -o -iname 'libponcelet_shared.dylib' \
+                      -o -iname 'poncelet_shared.dll' -o -iname 'poncelet_shared.lib' \) \
+               -exec cp {} stage/ \;
+          cp dist/poncelet_single.hpp stage/
+          ls -la stage
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: poncelet-${{ matrix.os }}
+          path: stage/*
+          if-no-files-found: error
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Doxygen
+        run: sudo apt-get update && sudo apt-get install -y doxygen
+      - name: Generate API reference
+        run: doxygen docs/Doxyfile   # -> docs/api/html
+      - name: Zip
+        run: cd docs/api && zip -r ../../poncelet-docs-html.zip html
+      - uses: actions/upload-artifact@v4
+        with:
+          name: poncelet-docs
+          path: poncelet-docs-html.zip
+          if-no-files-found: error
+
+  release:
+    needs: [build, docs]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Flatten per-OS staging dirs into one release asset set
+        # Each poncelet-<os> artifact carries the same dist/poncelet_single.hpp
+        # (harmless duplicate — actions/upload-artifact already dedupes identical
+        # uploads within a job, and a same-named file here just overwrites).
+        run: |
+          mkdir -p out
+          find artifacts -type f -exec cp {} out/ \;
+          ls -la out
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: out/*
+          generate_release_notes: true

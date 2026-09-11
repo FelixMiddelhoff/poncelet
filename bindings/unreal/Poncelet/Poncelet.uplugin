@@ -1,0 +1,25 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "1.0",
+	"FriendlyName": "Poncelet",
+	"Description": "Projectile & terminal-ballistics simulation (exterior flight, terminal ballistics, 6-DOF, explosive/fragmentation/shaped-charge, guided munitions) via the poncelet C++ API.",
+	"Category": "Physics",
+	"CreatedBy": "poncelet",
+	"CreatedByURL": "",
+	"DocsURL": "",
+	"MarketplaceURL": "",
+	"SupportURL": "",
+	"EnabledByDefault": true,
+	"CanContainContent": false,
+	"IsBetaVersion": true,
+	"IsExperimentalVersion": false,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "Poncelet",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		}
+	]
+}

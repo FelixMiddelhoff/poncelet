@@ -1,0 +1,48 @@
+# poncelet — Doxygen configuration.
+# SPDX-License-Identifier: MIT
+#
+# Run from the repo root:   doxygen docs/Doxyfile
+# Output:                    docs/api/html/index.html
+#
+# The public headers use plain `//` comments; tools/doxygen_filter.py rewrites
+# them to `///` on the fly (FILTER_PATTERNS below) so the prose is picked up
+# without editing the source. Needs `python3` on PATH.
+#
+# A partial Doxyfile is valid — every unset tag keeps its Doxygen default.
+
+PROJECT_NAME           = poncelet
+PROJECT_NUMBER         = 1.0.0
+PROJECT_BRIEF          = "projectile & terminal-ballistics library for games"
+OUTPUT_DIRECTORY       = docs/api
+CREATE_SUBDIRS         = NO
+
+INPUT                  = include/poncelet README.md
+FILE_PATTERNS          = *.hpp *.h
+RECURSIVE              = YES
+USE_MDFILE_AS_MAINPAGE = README.md
+
+FILTER_PATTERNS        = "*=python3 tools/doxygen_filter.py"
+
+EXTRACT_ALL            = YES
+EXTRACT_STATIC         = YES
+HIDE_UNDOC_MEMBERS     = NO
+JAVADOC_AUTOBRIEF      = YES
+QT_AUTOBRIEF           = YES
+MARKDOWN_SUPPORT       = YES
+AUTOLINK_SUPPORT       = YES
+SORT_MEMBER_DOCS       = NO
+SORT_BRIEF_DOCS        = NO
+
+QUIET                  = YES
+WARN_IF_UNDOCUMENTED   = NO
+WARN_IF_DOC_ERROR      = NO
+WARN_AS_ERROR          = NO
+
+GENERATE_HTML          = YES
+HTML_OUTPUT            = html
+GENERATE_TREEVIEW      = YES
+DISABLE_INDEX          = NO
+GENERATE_LATEX         = NO
+GENERATE_XML           = NO
+
+HAVE_DOT               = NO

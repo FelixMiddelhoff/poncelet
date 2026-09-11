@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>poncelet — WASM trajectory demo</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 2rem; background: #111; color: #eee; }
+  h1 { font-size: 1.1rem; font-weight: 600; }
+  canvas { background: #1a2a1a; border: 1px solid #444; display: block; margin-top: 1rem; }
+  label { display: inline-block; width: 11rem; }
+  #status { color: #f66; margin-top: 0.5rem; min-height: 1.2em; }
+  #readout { color: #9c9; font-family: monospace; margin-top: 0.5rem; }
+</style>
+</head>
+<body>
+<h1>poncelet — trajectory preview, compiled to WebAssembly</h1>
+<p>Same <code>pon::preview_arc</code> the native cookbook recipes use — no <code>Sim</code>, no <code>World</code>, just a drop table.</p>
+
+<div><label for="speed">Muzzle speed (m/s)</label><input id="speed" type="range" min="100" max="900" value="360"><span id="speedVal"></span></div>
+<div><label for="angle">Launch angle (deg)</label><input id="angle" type="range" min="0" max="45" value="3" step="0.5"><span id="angleVal"></span></div>
+
+<canvas id="c" width="900" height="360"></canvas>
+<div id="readout"></div>
+<div id="status">Loading poncelet_demo.wasm&hellip;</div>
+
+<script src="poncelet_demo.js"></script>
+<script>
+const statusEl = document.getElementById('status');
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const speedEl = document.getElementById('speed');
+const angleEl = document.getElementById('angle');
+const speedValEl = document.getElementById('speedVal');
+const angleValEl = document.getElementById('angleVal');
+const readoutEl = document.getElementById('readout');
+
+const MAX_POINTS = 300;
+let Module, typeId, outPtr;
+
+createPonceletModule().then((mod) => {
+    Module = mod;
+    if (!Module.ccall('wasm_init', 'number', [], [])) {
+        statusEl.textContent = 'wasm_init failed';
+        return;
+    }
+    // A 9x19-ish bullet: 8 g, 9 mm, Cd 0.30 (matches docs/examples/c_api_shot.c).
+    typeId = Module.ccall('wasm_register_bullet', 'number',
+        ['string', 'number', 'number', 'number', 'number'],
+        ['demo_9mm', 0.008, 0.009, 0.30, 360.0]);
+    if (typeId === 0xFFFFFFFF) {
+        statusEl.textContent = 'wasm_register_bullet failed: ' +
+            Module.ccall('wasm_last_error', 'string', [], []);
+        return;
+    }
+    outPtr = Module._malloc(MAX_POINTS * 3 * 8); // 3 doubles (x,y,z) per point
+
+    statusEl.textContent = '';
+    speedEl.addEventListener('input', redraw);
+    angleEl.addEventListener('input', redraw);
+    redraw();
+});
+
+function redraw() {
+    const speed = parseFloat(speedEl.value);
+    const angleDeg = parseFloat(angleEl.value);
+    speedValEl.textContent = speed.toFixed(0) + ' m/s';
+    angleValEl.textContent = angleDeg.toFixed(1) + '°';
+
+    const rad = angleDeg * Math.PI / 180;
+    const n = Module.ccall('wasm_preview_arc', 'number',
+        ['number', 'number', 'number', 'number', 'number', 'number', 'number', 'number',
+         'number', 'number', 'number', 'number', 'number'],
+        [typeId, speed, 0, 1.7, 0, Math.cos(rad), Math.sin(rad), 0,
+         0.02, 8.0, 0.0, outPtr, MAX_POINTS]);
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.strokeStyle = '#3a4a3a';
+    ctx.beginPath(); ctx.moveTo(0, canvas.height - 20); ctx.lineTo(canvas.width, canvas.height - 20); ctx.stroke(); // ground
+
+    if (n < 2) { readoutEl.textContent = 'arc: ' + n + ' points'; return; }
+
+    const pxPerM = (canvas.width - 20) / 900; // scale for up to ~900 m downrange
+    const pyPerM = 8; // vertical scale, exaggerated so drop is visible
+
+    ctx.strokeStyle = '#8f8';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (let i = 0; i < n; ++i) {
+        const x = Module.getValue(outPtr + (i * 3 + 0) * 8, 'double');
+        const y = Module.getValue(outPtr + (i * 3 + 1) * 8, 'double');
+        const px = 10 + x * pxPerM;
+        const py = (canvas.height - 20) - y * pyPerM;
+        if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+
+    const lastX = Module.getValue(outPtr + ((n - 1) * 3 + 0) * 8, 'double');
+    const lastY = Module.getValue(outPtr + ((n - 1) * 3 + 1) * 8, 'double');
+    readoutEl.textContent = 'arc: ' + n + ' points, landed at x=' + lastX.toFixed(0) +
+        ' m, y=' + lastY.toFixed(2) + ' m';
+}
+</script>
+</body>
+</html>

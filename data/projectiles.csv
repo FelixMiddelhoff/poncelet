@@ -1,0 +1,70 @@
+# poncelet — named projectile catalog (docs/ballistics-phase-plan.md §3.1a / §4).
+#
+# One row per named round / arrow / ball / thrown object. `pon::catalog::get(id)`
+# returns a fully-populated ProjectileType; the `klass` enum only seeds gaps and
+# selects the code path — the string id *is* the round. A game loads its own
+# CSV on top with pon::catalog::load_csv() (later ids override earlier).
+#
+# Columns
+#   drag_model            G1 | G7 | ConstantCd | BallProfile | CustomCurve
+#   ballistic_coefficient scalar G1 or G7 BC (lb/in^2); use for G1/G7 rows
+#   drag_coefficient      steady Cd; use for ConstantCd rows
+#   ball_profile          id into ball_profiles.csv; use for BallProfile rows
+#   nose_shape_factor     terminal N* (sharp broadhead ~0.35 .. flat ~1.2)
+#   hardness              relative core hardness (drives the deformation threshold)
+#   deformable / fragile  0 / 1
+#   spin_rate_radps       muzzle spin; 0 => derived from twist_rate_m * speed
+#   spin_axis_mode        AlongVelocity | Fixed | Free
+#   twist_rate_m          signed rifling pitch, metres per turn (sign = drift dir)
+#
+# Bullet BC / mass / speed: manufacturer load data (Sierra, Hornady, Lake City
+# mil-spec) and en.wikipedia.org/wiki/Table_of_handgun_and_rifle_cartridges.
+# G1 vs G7 choice per kestrelmeters.com/pages/g1-g7-ballistic-coefficients.
+# Arrow rows: Western Hunter 2026 arrow-ballistics study + World Archery X10 data.
+# Sports rows defer geometry/speed to ball_profiles.csv where left blank.
+id,klass,drag_model,mass_kg,ref_diameter_m,ballistic_coefficient,drag_coefficient,ball_profile,muzzle_speed_mps,nose_shape_factor,hardness,deformable,fragile,spin_rate_radps,spin_axis_mode,twist_rate_m
+9x19_124gr_fmj,Bullet,G1,0.00804,0.00902,0.150,0,,360,0.90,0.60,0,0,0,AlongVelocity,0.254
+9x19_147gr_jhp,Bullet,G1,0.00953,0.00902,0.170,0,,300,0.75,0.40,1,0,0,AlongVelocity,0.254
+115gr_9mm_fmj,Bullet,G1,0.00745,0.00902,0.145,0,,380,0.90,0.60,0,0,0,AlongVelocity,0.254
+45acp_230gr_fmj,Bullet,G1,0.01490,0.01151,0.195,0,,260,0.95,0.60,0,0,0,AlongVelocity,0.406
+40sw_180gr_fmj,Bullet,G1,0.01166,0.01016,0.164,0,,300,0.90,0.60,0,0,0,AlongVelocity,0.381
+357mag_158gr_jsp,Bullet,G1,0.01024,0.00912,0.206,0,,455,0.80,0.55,1,0,0,AlongVelocity,0.476
+22lr_40gr_lrn,Bullet,G1,0.00259,0.00566,0.111,0,,340,0.90,0.30,1,0,0,AlongVelocity,0.406
+556x45_55gr_m193,Bullet,G7,0.00356,0.00570,0.123,0,,990,0.60,0.90,0,0,0,AlongVelocity,0.305
+556x45_62gr_m855,Bullet,G7,0.00402,0.00570,0.151,0,,940,0.60,0.90,0,0,0,AlongVelocity,0.178
+762x39_123gr_fmj,Bullet,G1,0.00797,0.00762,0.275,0,,715,0.70,0.70,0,0,0,AlongVelocity,0.240
+762x51_147gr_fmj,Bullet,G7,0.00953,0.00782,0.200,0,,833,0.65,0.80,0,0,0,AlongVelocity,0.305
+762x51_175gr_smk,Bullet,G7,0.01134,0.00782,0.243,0,,800,0.55,0.85,0,0,0,AlongVelocity,0.279
+308win_150gr_sp,Bullet,G1,0.00972,0.00782,0.314,0,,840,0.75,0.60,1,0,0,AlongVelocity,0.305
+3006_168gr_hpbt,Bullet,G7,0.01088,0.00782,0.223,0,,850,0.55,0.80,0,0,0,AlongVelocity,0.254
+300wm_190gr_hpbt,Bullet,G7,0.01231,0.00782,0.283,0,,900,0.55,0.80,0,0,0,AlongVelocity,0.254
+338lm_285gr_hpbt,Bullet,G7,0.01847,0.00858,0.410,0,,825,0.55,0.85,0,0,0,AlongVelocity,0.241
+50bmg_660gr_fmj,Bullet,G1,0.04277,0.01295,0.620,0,,880,0.70,0.90,0,0,0,AlongVelocity,0.381
+303brit_174gr_fmj,Bullet,G1,0.01128,0.00792,0.261,0,,745,0.70,0.70,0,0,0,AlongVelocity,0.254
+musket_ball_0_69cal,Bullet,G1,0.02850,0.01750,0.070,0,,400,1.00,0.40,1,0,0,Free,0
+12ga_00buck_pellet,Pellet,G1,0.00340,0.00838,0.030,0,,400,1.00,0.35,1,0,0,Free,0
+12ga_slug_1oz,Bullet,G1,0.02835,0.01847,0.100,0,,500,1.20,0.45,1,0,0,Free,0
+177_air_pellet_8gr,Pellet,G1,0.00052,0.00450,0.020,0,,200,1.00,0.30,1,0,0,AlongVelocity,0.400
+40mm_gl_he,Shell,G1,0.23000,0.04000,0.100,0,,76,0.90,0.80,0,0,0,AlongVelocity,0.480
+longbow_bodkin_60g,Arrow,ConstantCd,0.06000,0.00800,0,0.42,,55,0.30,1.20,0,0,0,Fixed,0
+warbow_heavy_95g,Arrow,ConstantCd,0.09500,0.00790,0,0.42,,52,0.30,1.20,0,0,0,Fixed,0
+modern_hunting_arrow_420g,Arrow,ConstantCd,0.02722,0.00726,0,0.44,,88,0.50,1.00,0,0,0,Fixed,0
+target_arrow_x10_18g,Arrow,ConstantCd,0.01840,0.00566,0,0.40,,63,0.35,1.00,0,0,0,Fixed,0
+crossbow_bolt_28g,Bolt,ConstantCd,0.02800,0.00850,0,0.45,,115,0.40,1.00,0,0,0,Fixed,0
+crossbow_bolt_modern_35g,Bolt,ConstantCd,0.03560,0.00815,0,0.45,,131,0.50,1.00,0,0,0,Fixed,0
+atlatl_dart_450g,Spear,ConstantCd,0.45000,0.01200,0,0.55,,35,0.50,0.60,0,0,0,Fixed,0
+javelin_800g,Spear,ConstantCd,0.80000,0.02500,0,0.60,,29,0.50,0.70,0,0,0,AlongVelocity,0
+throwing_knife_200g,ThrownBlade,ConstantCd,0.20000,0.02800,0,0.80,,12,0.55,1.20,0,0,0,Fixed,0
+throwing_axe_600g,ThrownBlade,ConstantCd,0.60000,0.04500,0,0.90,,10,0.60,1.20,0,0,0,Fixed,0
+thrown_rock_200g,Rock,BallProfile,0.20000,0.06000,0,0,rock,22,1.20,1.50,0,1,0,Free,0
+fifa_matchball,SportsBall,BallProfile,0,0,0,0,fifa_football,0,1.10,0.20,0,0,0,Fixed,0
+baseball_mlb,SportsBall,BallProfile,0,0,0,0,baseball,40,1.10,0.40,0,0,0,Fixed,0
+cricket_ball,SportsBall,BallProfile,0,0,0,0,cricket_ball,35,1.10,0.60,0,0,0,Fixed,0
+tennis_ball,SportsBall,BallProfile,0,0,0,0,tennis_ball,50,1.10,0.15,0,0,0,Fixed,0
+golf_ball,SportsBall,BallProfile,0,0,0,0,golf_ball,70,1.10,0.50,0,0,0,Fixed,0
+basketball,SportsBall,BallProfile,0,0,0,0,basketball,9,1.10,0.20,0,0,0,Fixed,0
+volleyball,SportsBall,BallProfile,0,0,0,0,volleyball,25,1.10,0.20,0,0,0,Fixed,0
+american_football,SportsBall,BallProfile,0,0,0,0,american_football,24,1.10,0.30,0,0,0,AlongVelocity,0
+rugby_ball,SportsBall,BallProfile,0,0,0,0,rugby_ball,23,1.10,0.30,0,0,0,AlongVelocity,0
+field_hockey_ball,SportsBall,BallProfile,0,0,0,0,field_hockey_ball,35,1.10,0.80,0,0,0,Fixed,0
+ice_hockey_puck,SportsBall,BallProfile,0,0,0,0,ice_hockey_puck,45,1.20,0.90,0,0,0,Fixed,0

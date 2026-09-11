@@ -1,0 +1,38 @@
+# poncelet — target-material table (docs/ballistics-phase-plan.md §4).
+#
+# Seed properties for the terminal-ballistics model. The caller's World callback
+# normally returns a Material directly; this table is a convenience for games
+# that want the shipped seeds (pon::materials::get("oak")). A game adds its own
+# with pon::materials::load_csv() / add() (later names override).
+#
+# Columns
+#   behaviour       Brittle | Ductile | Fibrous | Membrane | Granular | Fluid
+#   strength_pa     compressive (brittle), shear/flow (ductile), tear (membrane)
+#   toughness_j_m2  energy per unit crack area
+#   thickness_m     default slab thickness (<=0 or large => treat as bulk)
+#   enters_medium   medium id a projectile enters on perforation (-1 = unchanged;
+#                   0 = air, 1 = water)
+#
+# Concrete / wood / steel refs: Terminal ballistic loading on thick concrete
+# (Constr. Build. Mater. S0950061820309041); Bullet penetration into wooden
+# targets (ResearchGate 319860218); Ballistic penetration of hardened steel
+# plates (METU thesis 12613534). Oak strength is the Poncelet-validated value
+# (R^2 ~ 0.98 fit in the design doc).
+name,behaviour,density_kgm3,strength_pa,toughness_j_m2,thickness_m,elasticity,enters_medium
+air,Fluid,1.225,0,0,1.0e9,0.0,0
+water,Fluid,1000,0,0,1.0e9,1.0,1
+balloon_rubber,Membrane,1100,1.5e7,500,0.0003,0.5,-1
+flesh,Fibrous,1050,2.0e6,1.0e4,0.15,0.10,-1
+foliage,Membrane,300,5.0e5,200,0.02,0.10,-1
+thin_cloth,Membrane,400,8.0e5,150,0.002,0.10,-1
+pine,Fibrous,500,4.0e7,3.0e3,0.02,0.20,-1
+oak,Fibrous,750,9.0e7,6.0e3,0.02,0.20,-1
+plywood,Fibrous,600,5.5e7,4.0e3,0.018,0.15,-1
+drywall,Brittle,800,5.0e6,300,0.013,0.10,-1
+glass,Brittle,2500,5.0e7,10,0.006,0.05,-1
+brick,Brittle,1900,2.0e7,100,0.100,0.10,-1
+concrete,Brittle,2400,3.5e7,150,0.200,0.10,-1
+mild_steel,Ductile,7850,2.5e8,5.0e4,0.006,0.30,-1
+aluminium_6061,Ductile,2700,2.7e8,2.0e4,0.006,0.25,-1
+sand,Granular,1600,5.0e5,100,3.0,0.10,-1
+dry_earth,Granular,1500,3.0e5,80,3.0,0.10,-1

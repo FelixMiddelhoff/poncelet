@@ -1,0 +1,9 @@
+# poncelet — normalize line endings to LF for all text files, regardless of
+# the checking-out platform's git autocrlf setting.
+* text=auto eol=lf
+
+# Binary / generated assets git shouldn't touch line endings on at all.
+*.wasm binary
+*.png binary
+*.jpg binary
+*.ico binary

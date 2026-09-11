@@ -1,0 +1,26 @@
+/build/
+/build-*/
+/docs/examples/quickstart/build/
+/out/
+/.cache/
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dylib
+*.dll
+compile_commands.json
+__pycache__/
+/docs/api/
+/bindings/godot/godot-cpp/
+/bindings/godot/godot-api/
+/bindings/godot/build/
+/bindings/godot/demo/libponcelet_godot.*
+# tools/amalgamate.py --minify output — a build-time convenience, not committed
+# (dist/poncelet_single.hpp, the unminified/documented one, IS committed).
+/dist/poncelet_single.min.hpp
+# WASM demo build output (docs/examples/web/build.ps1) — a compiled binary,
+# same reasoning as never committing build/*.lib.
+/docs/examples/web/poncelet_demo.js
+/docs/examples/web/poncelet_demo.wasm

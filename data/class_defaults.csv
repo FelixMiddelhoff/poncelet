@@ -1,0 +1,25 @@
+# poncelet — class defaults (docs/ballistics-phase-plan.md §4).
+#
+# Fallback values used only to fill a ProjectileType field that neither a
+# catalog entry nor the caller set. `klass` selects the code path; these seed
+# the geometry + drag profile for a bare `t.klass = X` type.
+#
+# drag_coefficient       is used when drag_model = ConstantCd.
+# ballistic_coefficient  is used when drag_model = G1 / G7 (0 => a mild 0.30).
+# A blank / 0 numeric cell means "no default for this field".
+#
+# Sources: muzzle-velocity ranges — en.wikipedia.org/wiki/Muzzle_velocity,
+# en.wikipedia.org/wiki/Spear-thrower; arrow mass/speed — Western Hunter 2026
+# arrow-ballistics study; nose-shape factors — McCoy, Modern Exterior
+# Ballistics, and the Poncelet N* seeds in §3.5.
+klass,ref_diameter_m,mass_kg,drag_model,drag_coefficient,ballistic_coefficient,muzzle_speed_mps,nose_shape_factor
+Bullet,0.0078,0.0095,G7,0,0.50,875,0.70
+Arrow,0.008,0.050,ConstantCd,0.40,0,60,0.35
+Bolt,0.0085,0.028,ConstantCd,0.45,0,110,0.40
+Spear,0.025,0.600,ConstantCd,0.60,0,32,0.50
+ThrownBlade,0.030,0.250,ConstantCd,0.80,0,20,0.55
+SportsBall,0.220,0.430,BallProfile,0.25,0,28,1.10
+Pellet,0.0084,0.0034,G1,0,0.030,400,1.00
+Shell,0.075,6.0,G1,0,0.30,850,0.90
+Rock,0.060,0.200,BallProfile,0.50,0,22,1.20
+Custom,0.010,0.010,ConstantCd,0.30,0,100,0.90

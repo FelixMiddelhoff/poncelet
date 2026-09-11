@@ -1,0 +1,11 @@
+[configuration]
+entry_symbol = "poncelet_library_init"
+compatibility_minimum = "4.2"
+
+[libraries]
+linux.debug.x86_64   = "res://libponcelet_godot.so"
+linux.release.x86_64 = "res://libponcelet_godot.so"
+windows.debug.x86_64   = "res://libponcelet_godot.dll"
+windows.release.x86_64 = "res://libponcelet_godot.dll"
+macos.debug   = "res://libponcelet_godot.dylib"
+macos.release = "res://libponcelet_godot.dylib"
