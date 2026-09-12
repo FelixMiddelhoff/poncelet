@@ -188,10 +188,10 @@ namespace config {
 //                   Q32.32 fixed-point core (deterministic sqrt + transcendental
 //                   LUTs, including the AdaptiveRKF45 step-size controller's
 //                   pow via a dedicated LUT), so the trajectory folds to the
-//                   same bits on every OS / compiler / optimisation level. The
-//                   per-type drag LUT is still compiled in double at
-//                   registerType(), and the guidance law's external-
-//                   acceleration term is not yet on the fixed-point path.
+//                   same bits on every OS / compiler / optimisation level,
+//                   guided rounds included (compute_guidance() runs the same
+//                   swappable Core<Acc> pattern). The per-type drag LUT is
+//                   still compiled in double at registerType().
 enum class Determinism { Loose, PlatformStable, BitExact };
 
 } // namespace config
@@ -649,9 +649,11 @@ inline Real warhead_energy_J(const WarheadDesc& w) {
 //
 // The guidance command is evaluated once per `Sim::step` from the frame-start
 // state (missiles pull single- to low-tens of g, so a per-frame update is
-// plenty). It is deterministic — same inputs, same command — but, unlike the
-// integrator core, it is NOT in the fp-contract-off TU: it feeds the trajectory,
-// so a future BitExact build folds `compute_guidance` into the swappable core.
+// plenty). It is deterministic — same inputs, same command — and, like the
+// integrator core, it is in the fp-contract-off TU: `compute_guidance` runs on
+// the same swappable `Core<Acc>` pattern (`bitExact = true` selects the Q32.32
+// fixed-point path, deterministic sqrt/acos included), so a guided round is
+// on the same cross-platform BitExact footing as the rest of the trajectory.
 
 
 namespace pon {
@@ -711,9 +713,12 @@ struct GuidanceCommand {
 // Evaluate the guidance law. Advances `gs` (timeGuided bookkeeping, lockLost
 // latch, stored LOS for the next λ̇ estimate) by the step `dt`. `pos` / `vel`
 // are the missile's frame-start state; `flightTime_s` its total time of flight.
+// `bitExact` ⇒ run the Q32.32 fixed-point core (deterministic sqrt/acos, no
+// FMA contraction) instead of double — same convention as every other
+// integrate.hpp entry point; `Sim` passes its own `Determinism::BitExact` flag.
 GuidanceCommand compute_guidance(const GuidanceDesc& d, GuidanceState& gs,
                                  Vec3 pos, Vec3 vel, Seconds flightTime_s,
-                                 Seconds dt);
+                                 Seconds dt, bool bitExact = false);
 
 } // namespace pon
 
@@ -4071,33 +4076,6 @@ inline Fx32 fx_cos_full(Fx32 x) { return fx_sin_full(x + kFx32PiHalf); }
 
 } // namespace pon::detail
 
-#include <cmath>
-
-namespace pon::detail {
-
-// --- Real (double) accumulator ------------------------------------------
-inline Real acc_sqrt(Real v)       { return std::sqrt(v); }
-inline Real acc_sin(Real a)        { return std::sin(a); }
-inline Real acc_acos(Real c)       { return std::acos(c); }
-inline Real acc_exp(Real arg)      { return std::exp(arg); }          // arg ≤ 0
-inline Real acc_pow_neg017(Real t) { return std::pow(t, Real(-0.17)); }
-inline Real acc_pow_ratio02(Real t) { return std::pow(t, Real(0.2)); }
-
-inline Real acc_abs(Real v)        { return std::fabs(v); }
-inline Real to_real(Real v)        { return v; }
-
-// --- Fx32 accumulator --------------------------------------------------
-inline Fx32 acc_sqrt(Fx32 v)       { return fx32_sqrt(v); }
-inline Fx32 acc_sin(Fx32 a)        { return fx_sin(a); }
-inline Fx32 acc_acos(Fx32 c)       { return fx_acos(c); }
-inline Fx32 acc_exp(Fx32 arg)      { return fx_exp(arg); }
-inline Fx32 acc_pow_neg017(Fx32 t) { return fx_pow_neg017(t); }
-inline Fx32 acc_pow_ratio02(Fx32 t) { return fx_pow_ratio02(t); }
-inline Fx32 acc_abs(Fx32 v)        { return fx32_abs(v); }
-inline Real to_real(Fx32 v)        { return v.to_double(); }
-
-} // namespace pon::detail
-
 // ===== src/avec3.hpp =====
 // poncelet — accumulator-templated 3-vector for the integrator core.
 // SPDX-License-Identifier: MIT
@@ -4147,6 +4125,40 @@ constexpr AVec3<T> cross(AVec3<T> a, AVec3<T> b) {
             a.z * b.x - a.x * b.z,
             a.x * b.y - a.y * b.x};
 }
+
+} // namespace pon::detail
+
+#include <cmath>
+
+namespace pon::detail {
+
+// --- Real (double) accumulator ------------------------------------------
+inline Real acc_sqrt(Real v)       { return std::sqrt(v); }
+inline Real acc_sin(Real a)        { return std::sin(a); }
+inline Real acc_acos(Real c)       { return std::acos(c); }
+inline Real acc_exp(Real arg)      { return std::exp(arg); }          // arg ≤ 0
+inline Real acc_pow_neg017(Real t) { return std::pow(t, Real(-0.17)); }
+inline Real acc_pow_ratio02(Real t) { return std::pow(t, Real(0.2)); }
+
+inline Real acc_abs(Real v)        { return std::fabs(v); }
+inline Real to_real(Real v)        { return v; }
+
+// --- Fx32 accumulator --------------------------------------------------
+inline Fx32 acc_sqrt(Fx32 v)       { return fx32_sqrt(v); }
+inline Fx32 acc_sin(Fx32 a)        { return fx_sin(a); }
+inline Fx32 acc_acos(Fx32 c)       { return fx_acos(c); }
+inline Fx32 acc_exp(Fx32 arg)      { return fx_exp(arg); }
+inline Fx32 acc_pow_neg017(Fx32 t) { return fx_pow_neg017(t); }
+inline Fx32 acc_pow_ratio02(Fx32 t) { return fx_pow_ratio02(t); }
+inline Fx32 acc_abs(Fx32 v)        { return fx32_abs(v); }
+inline Real to_real(Fx32 v)        { return v.to_double(); }
+
+// --- AVec3<Acc> length, shared by every Core<Acc>/GuidanceCore<Acc> ------
+// (mirrors Vec3::length()/length_sq() in types.hpp; AVec3 itself only carries
+// the ops the templated cores actually use, so this lives here rather than
+// in avec3.hpp, alongside the acc_sqrt each instantiation forwards to.)
+template <class T>
+inline T acc_length(AVec3<T> v) { return acc_sqrt(dot(v, v)); }
 
 } // namespace pon::detail
 
@@ -7089,6 +7101,14 @@ std::size_t spawn_fragments(Sim& sim, const std::vector<FragmentSpec>& specs,
 
 } // namespace pon
 
+#if defined(_MSC_VER)
+#  pragma float_control(precise, on, push)
+#endif
+#if defined(__clang__)
+#  pragma clang fp contract(off)
+#endif
+#pragma STDC FP_CONTRACT OFF
+
 // ===== src/guidance.cpp =====
 // poncelet — guided-munition steering laws (Phase 19 item 5).
 // SPDX-License-Identifier: MIT
@@ -7099,121 +7119,160 @@ std::size_t spawn_fragments(Sim& sim, const std::vector<FragmentSpec>& specs,
 // rotation rate Ω = (r × v_rel)/R² is analytic from the seeker track, so no
 // finite-difference of the angle is needed.
 //
-// Deterministic (no <random>, no allocation). NOT the fp-contract-off TU — it
-// feeds the trajectory, so a BitExact build folds this into the swappable core
-// alongside integrate.cpp.
+// FP-CONTRACT-OFF TRANSLATION UNIT (see CMakeLists.txt). Deterministic (no
+// <random>, no allocation), and — same pattern as integrate.cpp's `Core<Acc>`
+// — templated on a swappable accumulator: `GuidanceCore<Real>` is the
+// float/double path (byte-identical to the pre-BitExact-guidance code below),
+// `GuidanceCore<Fx32>` is the Q32.32 fixed-point path selected by `bitExact`.
+// Every vector op here is a genuine FMA-contraction or cross-platform-libm
+// risk (dot/cross of independently-nonzero vectors feeding `acos`) — see
+// poncelet-planning/bitexact-guidance-law-plan.md for the full inventory —
+// so the whole function is templated rather than patched call-by-call.
 
+
+
+namespace pon::detail {
+namespace {
+constexpr Real kG0_guidance = 9.80665;
+} // namespace
+
+template <class Acc>
+struct GuidanceCore {
+    using AVec = AVec3<Acc>;
+
+    static AVec A(Vec3 v) { return {Acc(v.x), Acc(v.y), Acc(v.z)}; }
+    static Vec3 V(AVec a) { return {to_real(a.x), to_real(a.y), to_real(a.z)}; }
+    static Acc  mn(Acc a, Acc b) { return a < b ? a : b; }
+    static Acc  mx(Acc a, Acc b) { return a > b ? a : b; }
+
+    // Component of `v` perpendicular to unit vector `u`.
+    static AVec reject(AVec v, AVec u) { return v - u * dot(v, u); }
+
+    static GuidanceCommand compute(const GuidanceDesc& d, GuidanceState& gs,
+                                   Vec3 pos, Vec3 vel, Seconds flightTime_s,
+                                   Seconds dt) {
+        GuidanceCommand cmd;
+        if (d.law == GuidanceLaw::None || !gs.hasTarget) {
+            gs.haveLastTargetVel = false;
+            return cmd;
+        }
+
+        const AVec velA  = A(vel);
+        const Acc  speed = acc_length(velA);
+        const AVec vHat  = speed > Acc(1e-6) ? velA * (Acc(1) / speed)
+                                              : AVec{Acc(1), Acc(0), Acc(0)};
+
+        // --- Axial thrust (independent of lock). ---
+        AVec thrust{Acc(0), Acc(0), Acc(0)};
+        if (d.thrustAccel_mps2 > Real(0) && flightTime_s < d.burnTime_s)
+            thrust = vHat * Acc(d.thrustAccel_mps2);
+
+        // --- Line of sight. ---
+        const AVec r = A(gs.targetPos) - A(pos);
+        const Acc  R = acc_length(r);
+        if (R < Acc(1e-4)) {                        // essentially on top of the target
+            cmd.accel_mps2 = V(thrust);
+            return cmd;
+        }
+        const AVec rHat = r * (Acc(1) / R);
+        const AVec vRel = A(gs.targetVel) - velA;   // target minus missile
+        const Acc  Vc   = -dot(vRel, rHat);         // closing speed (>0 closing)
+        cmd.closingSpeed_mps = to_real(Vc);
+
+        // --- Seeker field of view: target too far off boresight ⇒ lose lock. ---
+        Acc c = dot(rHat, vHat);
+        c = c > Acc(1) ? Acc(1) : (c < Acc(-1) ? Acc(-1) : c);
+        const Acc look = acc_acos(c);
+        if (to_real(look) > d.seekerHalfFov_rad) gs.lockLost = true;
+
+        // LOS rotation-rate vector Ω = (r × v_rel) / R².
+        const AVec omega = cross(r, vRel) * (Acc(1) / (R * R));
+        cmd.losRate_radps = to_real(acc_length(omega));
+
+        // Store the track for the next call / APN. Plain double: componentwise
+        // subtract/divide only, no multiply-add chain — not FMA-sensitive
+        // regardless of Acc (see bitexact-guidance-law-plan.md's "not a risk"
+        // list), so it stays outside the templated path.
+        const Vec3 aTgt = (gs.haveLastTargetVel && dt > Real(0))
+                              ? (gs.targetVel - gs.lastTargetVel) / dt
+                              : Vec3{0, 0, 0};
+        gs.lastTargetVel     = gs.targetVel;
+        gs.haveLastTargetVel = true;
+        gs.lastLos           = V(rHat);
+        gs.lastLosTime       = flightTime_s;
+        gs.timeAlive_s       = flightTime_s;
+
+        const bool guiding = !gs.lockLost && flightTime_s >= d.activationDelay_s;
+        if (!guiding) {
+            cmd.accel_mps2 = V(thrust);             // coast (only thrust)
+            return cmd;
+        }
+        cmd.active = true;
+
+        // --- Lateral command. ---
+        AVec aLat{Acc(0), Acc(0), Acc(0)};
+        switch (d.law) {
+            case GuidanceLaw::Pursuit: {
+                // Turn the velocity vector toward the target: command ⟂ v, toward
+                // the LOS, proportional to the angle error (saturating at ~12°).
+                const AVec perp = reject(rHat, vHat);
+                const Acc  e    = acc_length(perp);
+                if (e > Acc(1e-6)) {
+                    const Acc gain = mn(Acc(1), e / Acc(0.20));
+                    aLat = (perp * (Acc(1) / e)) *
+                           (gain * Acc(d.maxLateralAccel_g) * Acc(kG0_guidance));
+                }
+                break;
+            }
+            case GuidanceLaw::ProportionalNav:
+            case GuidanceLaw::AugmentedPN: {
+                const Acc N  = mx(Acc(d.navConstant), Acc(0));
+                const Acc vc = mx(Vc, Acc(0));        // no PN command when opening
+                // a = N · Vc · (Ω × r̂)  — magnitude N·Vc·|Ω|, ⟂ LOS in the turn plane.
+                aLat = cross(omega, rHat) * (N * vc);
+                if (d.law == GuidanceLaw::AugmentedPN) {
+                    const AVec aTgtPerp = reject(A(aTgt), rHat);
+                    aLat += aTgtPerp * (Acc(0.5) * N);
+                }
+                break;
+            }
+            case GuidanceLaw::None: break;
+        }
+
+        // Keep the command purely lateral (⟂ velocity) and clamp to the airframe.
+        aLat = reject(aLat, vHat);
+        const Acc aMax = mx(Acc(d.maxLateralAccel_g), Acc(0)) * Acc(kG0_guidance);
+        Acc aMag = acc_length(aLat);
+        if (aMag > aMax && aMag > Acc(0)) { aLat = aLat * (aMax / aMag); aMag = aMax; }
+        cmd.lateralAccel_mps2 = to_real(aMag);
+
+        // --- Manoeuvre (induced) drag: a speed loss opposing the velocity. ---
+        AVec drag{Acc(0), Acc(0), Acc(0)};
+        if (d.inducedDragFactor > Real(0) && aMag > Acc(0))
+            drag = -(vHat * (Acc(d.inducedDragFactor) * aMag));
+
+        cmd.accel_mps2 = V(aLat + thrust + drag);
+        return cmd;
+    }
+};
+
+} // namespace pon::detail
 
 namespace pon {
-namespace {
-
-constexpr Real kG0_guidance = 9.80665;
-
-// Component of `v` perpendicular to unit vector `u`.
-Vec3 reject_guidance(Vec3 v, Vec3 u) { return v - u * dot(v, u); }
-
-} // namespace
 
 GuidanceCommand compute_guidance(const GuidanceDesc& d, GuidanceState& gs,
                                  Vec3 pos, Vec3 vel, Seconds flightTime_s,
-                                 Seconds dt) {
-    GuidanceCommand cmd;
-    if (d.law == GuidanceLaw::None || !gs.hasTarget) {
-        gs.haveLastTargetVel = false;
-        return cmd;
-    }
-
-    const Real speed = length(vel);
-    const Vec3 vHat  = speed > Real(1e-6) ? vel / speed : Vec3{1, 0, 0};
-
-    // --- Axial thrust (independent of lock). ---
-    Vec3 thrust{0, 0, 0};
-    if (d.thrustAccel_mps2 > Real(0) && flightTime_s < d.burnTime_s)
-        thrust = vHat * d.thrustAccel_mps2;
-
-    // --- Line of sight. ---
-    const Vec3 r  = gs.targetPos - pos;
-    const Real R  = length(r);
-    if (R < Real(1e-4)) {                       // essentially on top of the target
-        cmd.accel_mps2 = thrust;
-        return cmd;
-    }
-    const Vec3 rHat  = r / R;
-    const Vec3 vRel  = gs.targetVel - vel;      // target minus missile
-    const Real Vc    = -dot(vRel, rHat);        // closing speed (>0 closing)
-    cmd.closingSpeed_mps = Vc;
-
-    // --- Seeker field of view: target too far off boresight ⇒ lose lock. ---
-    const Real look = std::acos(std::clamp(dot(rHat, vHat), Real(-1), Real(1)));
-    if (look > d.seekerHalfFov_rad) gs.lockLost = true;
-
-    // LOS rotation-rate vector Ω = (r × v_rel) / R².
-    const Vec3 omega = cross(r, vRel) / (R * R);
-    cmd.losRate_radps = length(omega);
-
-    // Store the track for the next call / APN.
-    const Vec3 aTgt = (gs.haveLastTargetVel && dt > Real(0))
-                          ? (gs.targetVel - gs.lastTargetVel) / dt
-                          : Vec3{0, 0, 0};
-    gs.lastTargetVel     = gs.targetVel;
-    gs.haveLastTargetVel = true;
-    gs.lastLos           = rHat;
-    gs.lastLosTime       = flightTime_s;
-    gs.timeAlive_s       = flightTime_s;
-
-    const bool guiding = !gs.lockLost && flightTime_s >= d.activationDelay_s;
-    if (!guiding) {
-        cmd.accel_mps2 = thrust;                // coast (only thrust)
-        return cmd;
-    }
-    cmd.active = true;
-
-    // --- Lateral command. ---
-    Vec3 aLat{0, 0, 0};
-    switch (d.law) {
-        case GuidanceLaw::Pursuit: {
-            // Turn the velocity vector toward the target: command ⟂ v, toward
-            // the LOS, proportional to the angle error (saturating at ~12°).
-            const Vec3 perp = reject_guidance(rHat, vHat);
-            const Real e    = length(perp);
-            if (e > Real(1e-6)) {
-                const Real gain = std::min(Real(1), e / Real(0.20));
-                aLat = (perp / e) * (gain * d.maxLateralAccel_g * kG0_guidance);
-            }
-            break;
-        }
-        case GuidanceLaw::ProportionalNav:
-        case GuidanceLaw::AugmentedPN: {
-            const Real N  = std::max(d.navConstant, Real(0));
-            const Real vc = std::max(Vc, Real(0));     // no PN command when opening
-            // a = N · Vc · (Ω × r̂)  — magnitude N·Vc·|Ω|, ⟂ LOS in the turn plane.
-            aLat = cross(omega, rHat) * (N * vc);
-            if (d.law == GuidanceLaw::AugmentedPN) {
-                const Vec3 aTgtPerp = reject_guidance(aTgt, rHat);
-                aLat += aTgtPerp * (Real(0.5) * N);
-            }
-            break;
-        }
-        case GuidanceLaw::None: break;
-    }
-
-    // Keep the command purely lateral (⟂ velocity) and clamp to the airframe.
-    aLat = reject_guidance(aLat, vHat);
-    const Real aMax = std::max(d.maxLateralAccel_g, Real(0)) * kG0_guidance;
-    Real aMag = length(aLat);
-    if (aMag > aMax && aMag > Real(0)) { aLat = aLat * (aMax / aMag); aMag = aMax; }
-    cmd.lateralAccel_mps2 = aMag;
-
-    // --- Manoeuvre (induced) drag: a speed loss opposing the velocity. ---
-    Vec3 drag{0, 0, 0};
-    if (d.inducedDragFactor > Real(0) && aMag > Real(0))
-        drag = -vHat * (d.inducedDragFactor * aMag);
-
-    cmd.accel_mps2 = aLat + thrust + drag;
-    return cmd;
+                                 Seconds dt, bool bitExact) {
+    return bitExact
+               ? detail::GuidanceCore<detail::Fx32>::compute(d, gs, pos, vel, flightTime_s, dt)
+               : detail::GuidanceCore<Real>::compute(d, gs, pos, vel, flightTime_s, dt);
 }
 
 } // namespace pon
+
+#if defined(_MSC_VER)
+#  pragma float_control(pop)
+#endif
 
 #if defined(_MSC_VER)
 #  pragma float_control(precise, on, push)
@@ -9287,7 +9346,7 @@ Vec3 Sim::evalGuidance(ProjectileState& s, const ProjectileType& t, Seconds dt) 
     Vec3 ext = s.externalAccel_mps2;
     if (t.guidance.law != GuidanceLaw::None && s.guidance.hasTarget) {
         const GuidanceCommand gc = compute_guidance(
-            t.guidance, s.guidance, s.position, s.velocity, s.timeAlive_s, dt);
+            t.guidance, s.guidance, s.position, s.velocity, s.timeAlive_s, dt, bitExact_);
         ext += gc.accel_mps2;
     }
     return ext;

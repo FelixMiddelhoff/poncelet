@@ -1222,7 +1222,7 @@ Vec3 Sim::evalGuidance(ProjectileState& s, const ProjectileType& t, Seconds dt) 
     Vec3 ext = s.externalAccel_mps2;
     if (t.guidance.law != GuidanceLaw::None && s.guidance.hasTarget) {
         const GuidanceCommand gc = compute_guidance(
-            t.guidance, s.guidance, s.position, s.velocity, s.timeAlive_s, dt);
+            t.guidance, s.guidance, s.position, s.velocity, s.timeAlive_s, dt, bitExact_);
         ext += gc.accel_mps2;
     }
     return ext;

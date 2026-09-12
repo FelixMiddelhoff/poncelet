@@ -108,13 +108,17 @@ endif()
 #     folded hash. Confirmed by two shift-free Fx32 arithmetic reference
 #     tests passing on macOS CI (ruling out the fixed-point core itself)
 #     before landing on this.
+#   * guidance.cpp — compute_guidance() (bitexact-guidance-law-plan.md): every
+#     dot()/cross() in the PN/APN/Pursuit laws is a genuine FMA-contraction
+#     risk of the same shape as sim.cpp's, feeding the hashed accel_mps2/
+#     losRate_radps/closingSpeed_mps output directly.
 if(MSVC)
   set_source_files_properties(src/integrate.cpp src/drag_tables.cpp src/ball_profiles.cpp
-                               src/sim.cpp
+                               src/sim.cpp src/guidance.cpp
     PROPERTIES COMPILE_OPTIONS "/fp:precise;/fp:except-")
 else()
   set_source_files_properties(src/integrate.cpp src/drag_tables.cpp src/ball_profiles.cpp
-                               src/sim.cpp
+                               src/sim.cpp src/guidance.cpp
     PROPERTIES COMPILE_OPTIONS "-ffp-contract=off;-fno-fast-math")
 endif()
 

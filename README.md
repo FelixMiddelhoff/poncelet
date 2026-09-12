@@ -177,9 +177,9 @@ A C ABI (`<poncelet/poncelet.h>`) mirrors this for non-C++ callers.
 for the same platform + compiler + inputs. `BitExact` runs the integrator on a
 Q32.32 fixed-point core (deterministic sqrt + transcendental LUTs + fixed-point
 drag sampling), so the trajectory folds to the same bits on every OS / compiler
-/ optimisation level. The per-type drag LUT is still compiled in double at
-`registerType()`, and the guidance law is not yet fixed-point (see the guide);
-the `AdaptiveRKF45` step-size controller is.
+/ optimisation level, guided rounds included — `compute_guidance()` runs the
+same swappable fixed-point core (see the guide). The per-type drag LUT is
+still compiled in double at `registerType()`.
 
 `Sim::stateHash()` is a 64-bit FNV-1a digest of every live shot's full state
 (hashed field by field, no struct padding) — sample it per frame for a rollback

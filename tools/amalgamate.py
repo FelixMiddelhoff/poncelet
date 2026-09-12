@@ -69,16 +69,16 @@ PUBLIC_HEADERS = [
     "poncelet/guidance.hpp", "poncelet/atmosphere.hpp",
 ]
 
-# src/integrate.cpp, src/drag_tables.cpp, src/ball_profiles.cpp and src/sim.cpp
-# are built by CMake with /fp:precise /fp:except- (MSVC) or -ffp-contract=off
-# -fno-fast-math (GCC/Clang) — see CMakeLists.txt's determinism-prep comment
-# for why each needs it (interp_curve()'s `a + (b-a)*f` and, the real
-# culprit, sim.cpp's use of Vec3::cross()/Quat::operator* — both `a*b-c*d`
-# FMA bait; a real cross-platform CI run caught both diverging on ARM64
-# macOS). A single-TU build loses that per-file flag; re-assert what a
-# pragma can. A whole-TU fast-math build still can't promise cross-platform
-# BitExact from the single header — use the multi-file build for that (see
-# dist/README.md).
+# src/integrate.cpp, src/drag_tables.cpp, src/ball_profiles.cpp, src/sim.cpp
+# and src/guidance.cpp are built by CMake with /fp:precise /fp:except- (MSVC)
+# or -ffp-contract=off -fno-fast-math (GCC/Clang) — see CMakeLists.txt's
+# determinism-prep comment for why each needs it (interp_curve()'s
+# `a + (b-a)*f`, sim.cpp's Vec3::cross()/Quat::operator*, and guidance.cpp's
+# PN/APN dot()/cross() chain — all textbook `a*b-c*d` FMA bait; a real
+# cross-platform CI run caught the sim.cpp case diverging on ARM64 macOS). A
+# single-TU build loses that per-file flag; re-assert what a pragma can. A
+# whole-TU fast-math build still can't promise cross-platform BitExact from
+# the single header — use the multi-file build for that (see dist/README.md).
 _FP_PRE = ("\n#if defined(_MSC_VER)\n#  pragma float_control(precise, on, push)\n#endif\n"
            "#if defined(__clang__)\n#  pragma clang fp contract(off)\n#endif\n"
            "#pragma STDC FP_CONTRACT OFF\n")
@@ -215,7 +215,8 @@ def build() -> str:
     impl = []
     for cpp in sorted(SRC_DIR.glob("*.cpp")):
         body = isolate_anon(expand(cpp.resolve(), seen, sysinc, True), cpp.stem)
-        if cpp.name in ("integrate.cpp", "drag_tables.cpp", "ball_profiles.cpp", "sim.cpp"):
+        if cpp.name in ("integrate.cpp", "drag_tables.cpp", "ball_profiles.cpp", "sim.cpp",
+                        "guidance.cpp"):
             body = _FP_PRE + body + _FP_POST
         impl.append(body)
 

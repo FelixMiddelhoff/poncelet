@@ -155,10 +155,10 @@ namespace config {
 //                   Q32.32 fixed-point core (deterministic sqrt + transcendental
 //                   LUTs, including the AdaptiveRKF45 step-size controller's
 //                   pow via a dedicated LUT), so the trajectory folds to the
-//                   same bits on every OS / compiler / optimisation level. The
-//                   per-type drag LUT is still compiled in double at
-//                   registerType(), and the guidance law's external-
-//                   acceleration term is not yet on the fixed-point path.
+//                   same bits on every OS / compiler / optimisation level,
+//                   guided rounds included (compute_guidance() runs the same
+//                   swappable Core<Acc> pattern). The per-type drag LUT is
+//                   still compiled in double at registerType().
 enum class Determinism { Loose, PlatformStable, BitExact };
 
 } // namespace config

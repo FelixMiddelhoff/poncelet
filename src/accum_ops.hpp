@@ -12,6 +12,7 @@
 #include "poncelet/types.hpp"
 #include "fixed_point.hpp"
 #include "fixed_lut.hpp"
+#include "avec3.hpp"
 
 #include <cmath>
 
@@ -37,5 +38,12 @@ inline Fx32 acc_pow_neg017(Fx32 t) { return fx_pow_neg017(t); }
 inline Fx32 acc_pow_ratio02(Fx32 t) { return fx_pow_ratio02(t); }
 inline Fx32 acc_abs(Fx32 v)        { return fx32_abs(v); }
 inline Real to_real(Fx32 v)        { return v.to_double(); }
+
+// --- AVec3<Acc> length, shared by every Core<Acc>/GuidanceCore<Acc> ------
+// (mirrors Vec3::length()/length_sq() in types.hpp; AVec3 itself only carries
+// the ops the templated cores actually use, so this lives here rather than
+// in avec3.hpp, alongside the acc_sqrt each instantiation forwards to.)
+template <class T>
+inline T acc_length(AVec3<T> v) { return acc_sqrt(dot(v, v)); }
 
 } // namespace pon::detail

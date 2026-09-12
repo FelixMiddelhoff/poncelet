@@ -2868,7 +2868,78 @@ ProjectileType g7_308_168() {
     t.mass_kg = 0.01089; t.refDiameter_m = 0.00782;
     return t;
 }
+
+// --- bitexact-guidance-law-plan.md Phase 2/3 helper -------------------------
+struct GuidanceSky final : World {
+    bool raycast(Vec3, Vec3, HitResult&) const override { return false; }
+    MediumId mediumAt(Vec3) const override { return kMediumAir; }
+    const Material& material(SurfaceId) const override { static Material a; return a; }
+};
+
+// Fly one PN-guided shot against a crossing target (same scenario as
+// docs/examples/guided_missile.cpp) for exactly `steps` frames of `dt`.
+// Returns the missile's final position; if `hashOut` is non-null, appends
+// stateHash() after every step (for a same-machine repeatability check).
+Vec3 fly_guided_pn(config::Determinism det, Seconds dt, int steps,
+                   std::vector<std::uint64_t>* hashOut = nullptr) {
+    Sim sim(Environment{}, SimConfig{det});
+    ProjectileType t;
+    t.id = "pn_bx"; t.klass = ProjectileClass::Shell;
+    t.dragModel = DragModel::ConstantCd; t.dragCoefficient = 0.20;
+    t.mass_kg = 22.0; t.refDiameter_m = 0.13;
+    t.guidance.law               = GuidanceLaw::ProportionalNav;
+    t.guidance.navConstant       = 4.0;
+    t.guidance.maxLateralAccel_g = 40.0;
+    t.guidance.thrustAccel_mps2  = 250.0;
+    t.guidance.burnTime_s        = 2.0;
+    const TypeId id = sim.registerType(t);
+
+    LaunchParams lp;
+    lp.position  = {0, 0, 0};
+    lp.direction = {0.55, 0.84, 0};
+    lp.speed     = 350.0;
+    lp.tier      = FidelityTier::Integrated;
+    const StateId m = sim.spawn(id, lp);
+
+    GuidanceSky sky; VectorEventSink sink;
+    Vec3 tgt{1500, 600, -400};
+    const Vec3 tgtVel{0, 0, 260};
+    for (int i = 0; i < steps && sim.state(m).alive; ++i) {
+        tgt = tgt + tgtVel * dt;
+        sim.guide(m, tgt, tgtVel);
+        sim.step(dt, sky, sink);
+        if (hashOut) hashOut->push_back(sim.stateHash());
+    }
+    return sim.state(m).position;
+}
 } // namespace
+
+PON_TEST(validation_bitexact_guidance_tracks_the_double_core) {
+    // bitexact-guidance-law-plan.md Phase 2: Core<Fx32> vs Core<Real> agreement
+    // for compute_guidance() itself, same bar validation_bitexact_tracks_the_
+    // double_core holds the main integrator to — a faithful approximation of
+    // the double path over a real intercept, NOT bit-identical.
+    const Seconds dt    = 1.0 / 200.0;
+    const int     steps = 800; // 4 s — PN converges well before this on the
+                                // guided_missile.cpp scenario
+    const Vec3 dbl = fly_guided_pn(config::Determinism::PlatformStable, dt, steps);
+    const Vec3 fx  = fly_guided_pn(config::Determinism::BitExact,       dt, steps);
+    const double d = length(fx - dbl);
+    std::printf("    [BitExact PN guidance] |fx - dbl| = %.5f m over %d steps\n", d, steps);
+    CHECK(d <= 0.5); // sub-metre over a multi-hundred-m/s guided intercept run
+}
+
+PON_TEST(bitexact_guidance_two_runs_fold_to_the_same_state_hash) {
+    // Phase 3: same-machine Fx32 repeatability for a guided shot — necessary,
+    // not sufficient (cross-platform is only proved by real CI, Phase 4).
+    const Seconds dt    = 1.0 / 200.0;
+    const int     steps = 400;
+    std::vector<std::uint64_t> a, b;
+    fly_guided_pn(config::Determinism::BitExact, dt, steps, &a);
+    fly_guided_pn(config::Determinism::BitExact, dt, steps, &b);
+    CHECK(a.size() == b.size());
+    CHECK(a == b);
+}
 
 PON_TEST(validation_bitexact_308_168_lands_in_the_published_band) {
     // The same transonic .308 shot the double core validates against Sierra/JBM

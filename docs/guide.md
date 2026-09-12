@@ -17,12 +17,13 @@ walkthrough, and a reference entry with a short example for every public call.
 > stable. v1.1 added 6-DOF rigid-body flight; v1.2 added explosive warheads;
 > the batch past v1.2 (fragmentation, shaped charges / EFP, guided munitions,
 > destruction coupling) is landed but version-untagged on purpose — one release
-> tag when the whole Phase 19 set is settled. Two capabilities are
-> tracked follow-ups, called out where they are relevant: explicit 4/8-wide
-> **SIMD intrinsics** (the portable SoA batch path is in) and extending the
-> **`BitExact`** fixed-point core to the guidance law (the integrator itself,
-> including the `AdaptiveRKF45` step-size controller, is fixed-point). The
-> G1/G7
+> tag when the whole Phase 19 set is settled. One capability is a tracked
+> follow-up, called out where relevant: explicit 4/8-wide **SIMD intrinsics**
+> (the portable SoA batch path is in). The guidance law now runs on the same
+> `BitExact` fixed-point core as the integrator and `AdaptiveRKF45`'s
+> step-size controller — verified locally against the double core and for
+> same-machine repeatability; real cross-platform CI verification (the
+> `poncelet_bitexact_golden` matrix) is still pending. The G1/G7
 > drag tables are the full-resolution BRL/McCoy standard curves (JBM
 > `mcg1.txt` / `mcg7.txt`); a single-BC standard-projectile model still can't
 > track an individual bullet's post-transonic drag rise, so supply a
@@ -1628,15 +1629,28 @@ deterministic bitwise `sqrt`, uniform transcendental LUTs for `sin`/`acos`/`exp`
 `pow`, and fixed-point drag-LUT sampling — all integer arithmetic, so the folded
 `stateHash()` digest is identical on every OS, compiler and optimisation level.
 
-Two things stay `double` and so are per-platform-deterministic but not
-cross-platform bit-identical under `BitExact`: the per-type drag LUT compiled at
-`registerType()` (a one-time cost; ship the compiled table if you need it
-identical), and the guidance law's external-acceleration term (`PrecisionFlag`s
-aside, a guided munition's steering command is not yet on the fixed-point
-path). The opt-in `AdaptiveRKF45` tier's step-size controller *is* fixed-point
-now — its `ratio^0.2` runs through a dedicated LUT (`fx_pow_ratio02`) under
-`BitExact` instead of `std::pow`, closing what used to be the one remaining
-libm call in that path.
+One thing stays `double` and so is per-platform-deterministic but not
+cross-platform bit-identical under `BitExact`: the per-type drag LUT compiled
+at `registerType()` (a one-time cost; ship the compiled table if you need it
+identical).
+
+The guidance law's steering command (`compute_guidance()` in `src/guidance.cpp`)
+now runs on the same swappable `Core<Acc>` pattern as the integrator: under
+`BitExact` every dot/cross/`acos` in the PN / augmented-PN / pursuit laws goes
+through the Q32.32 path (`GuidanceCore<Fx32>`) instead of `double`, so a guided
+round's `accel_mps2`/`losRate_radps`/`closingSpeed_mps` are integer-derived like
+the rest of the hashed state. Verified so far: byte-identical to the pre-change
+`double` path when `bitExact = false`, sub-metre agreement against the double
+core over a multi-hundred-m/s PN intercept when `bitExact = true`, and
+same-machine repeatable `stateHash()` digests. **Not yet verified: real
+cross-platform CI** (the `poncelet_bitexact_golden` 3-OS matrix does not yet
+include a guided shot) — treat guided-round `BitExact` as locally-proven, not
+yet cross-platform-proven, until that lands.
+
+The opt-in `AdaptiveRKF45` tier's step-size controller *is* fixed-point and
+cross-platform-verified — its `ratio^0.2` runs through a dedicated LUT
+(`fx_pow_ratio02`) under `BitExact` instead of `std::pow`, closing what used to
+be the one remaining libm call in that path.
 
 If you need reproducible runs and can't use `BitExact`: keep `dt` and
 `fixedStep_s` constant, feed inputs in a fixed order, and pin `rngSeed`.

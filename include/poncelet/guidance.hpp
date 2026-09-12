@@ -17,9 +17,11 @@
 //
 // The guidance command is evaluated once per `Sim::step` from the frame-start
 // state (missiles pull single- to low-tens of g, so a per-frame update is
-// plenty). It is deterministic — same inputs, same command — but, unlike the
-// integrator core, it is NOT in the fp-contract-off TU: it feeds the trajectory,
-// so a future BitExact build folds `compute_guidance` into the swappable core.
+// plenty). It is deterministic — same inputs, same command — and, like the
+// integrator core, it is in the fp-contract-off TU: `compute_guidance` runs on
+// the same swappable `Core<Acc>` pattern (`bitExact = true` selects the Q32.32
+// fixed-point path, deterministic sqrt/acos included), so a guided round is
+// on the same cross-platform BitExact footing as the rest of the trajectory.
 #pragma once
 
 #include "poncelet/types.hpp"
@@ -81,8 +83,11 @@ struct GuidanceCommand {
 // Evaluate the guidance law. Advances `gs` (timeGuided bookkeeping, lockLost
 // latch, stored LOS for the next λ̇ estimate) by the step `dt`. `pos` / `vel`
 // are the missile's frame-start state; `flightTime_s` its total time of flight.
+// `bitExact` ⇒ run the Q32.32 fixed-point core (deterministic sqrt/acos, no
+// FMA contraction) instead of double — same convention as every other
+// integrate.hpp entry point; `Sim` passes its own `Determinism::BitExact` flag.
 GuidanceCommand compute_guidance(const GuidanceDesc& d, GuidanceState& gs,
                                  Vec3 pos, Vec3 vel, Seconds flightTime_s,
-                                 Seconds dt);
+                                 Seconds dt, bool bitExact = false);
 
 } // namespace pon
