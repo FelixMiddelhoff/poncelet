@@ -21,9 +21,8 @@ walkthrough, and a reference entry with a short example for every public call.
 > follow-up, called out where relevant: explicit 4/8-wide **SIMD intrinsics**
 > (the portable SoA batch path is in). The guidance law now runs on the same
 > `BitExact` fixed-point core as the integrator and `AdaptiveRKF45`'s
-> step-size controller — verified locally against the double core and for
-> same-machine repeatability; real cross-platform CI verification (the
-> `poncelet_bitexact_golden` matrix) is still pending. The G1/G7
+> step-size controller, cross-platform CI-verified (see
+> [Determinism](#determinism)). The G1/G7
 > drag tables are the full-resolution BRL/McCoy standard curves (JBM
 > `mcg1.txt` / `mcg7.txt`); a single-BC standard-projectile model still can't
 > track an individual bullet's post-transonic drag rise, so supply a
@@ -1639,13 +1638,19 @@ now runs on the same swappable `Core<Acc>` pattern as the integrator: under
 `BitExact` every dot/cross/`acos` in the PN / augmented-PN / pursuit laws goes
 through the Q32.32 path (`GuidanceCore<Fx32>`) instead of `double`, so a guided
 round's `accel_mps2`/`losRate_radps`/`closingSpeed_mps` are integer-derived like
-the rest of the hashed state. Verified so far: byte-identical to the pre-change
-`double` path when `bitExact = false`, sub-metre agreement against the double
-core over a multi-hundred-m/s PN intercept when `bitExact = true`, and
-same-machine repeatable `stateHash()` digests. **Not yet verified: real
-cross-platform CI** (the `poncelet_bitexact_golden` 3-OS matrix does not yet
-include a guided shot) — treat guided-round `BitExact` as locally-proven, not
-yet cross-platform-proven, until that lands.
+the rest of the hashed state. Verified: byte-identical to the pre-change
+`double` path when `bitExact = false`; sub-metre agreement against the double
+core over a multi-hundred-m/s PN intercept when `bitExact = true`; and,
+cross-platform, the PN-intercept scenario's folded `stateHash()` digest is
+identical on ubuntu-latest, macos-latest and windows-latest in CI
+(`poncelet_bench --bitexact-guidance-check` / ctest
+`poncelet_bitexact_guidance_check` proves same-machine repeatability per job;
+the CI workflow additionally prints the digest unconditionally so it can be
+diffed across the matrix — see `bitexact-guidance-law-plan.md`'s Phase 4 for
+the full record). Kept as its own standalone ctest rather than folded into
+`poncelet_bitexact_golden`'s 5-shot scenario, same as the `AdaptiveRKF45`
+check below — lower blast radius, no need to re-capture and re-verify that
+committed golden for this.
 
 The opt-in `AdaptiveRKF45` tier's step-size controller *is* fixed-point and
 cross-platform-verified — its `ratio^0.2` runs through a dedicated LUT
