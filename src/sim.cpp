@@ -1504,7 +1504,13 @@ void Sim::emitTrace(TraceKind kind, const ProjectileState& s,
 }
 
 const ProjectileState& Sim::state(StateId id) const {
-    static const ProjectileState kNull{};
+    // ProjectileState::alive defaults to true (every real spawn() sets it
+    // explicitly, so that default is never otherwise observed) — a plain
+    // `ProjectileState{}` sentinel would report an out-of-range id as alive,
+    // and `while (sim.state(id).alive)` is the exact idiom this codebase's
+    // own examples/tests use to drive a shot loop. Force it false here so an
+    // invalid handle reads as unambiguously dead.
+    static const ProjectileState kNull = [] { ProjectileState s; s.alive = false; return s; }();
     return id < states_.size() ? states_[id] : kNull;
 }
 

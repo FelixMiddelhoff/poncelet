@@ -2700,11 +2700,26 @@ PON_API void pon_shaped_charge_penetrate(const pon_shaped_charge_desc* desc,
 //   * add / sub / negate go through `uint64_t` so signed overflow is never UB
 //     (two's-complement wrap is defined and matches every target).
 //   * multiply forms the full 128-bit product and arithmetic-shifts it right 32
-//     (`__int128` on GCC/Clang, `_mul128` on MSVC).
+//     (`__int128` on GCC/Clang, `_mul128` on MSVC), then narrows through
+//     `uint64_t` (never a raw signed left-shift/cast of an out-of-range value)
+//     so the narrowing is defined two's-complement wrap, same discipline as
+//     add/sub — never UB, on any operand.
 //   * divide forms the 128-bit dividend `a << 32` and does a 128/64 divide
 //     (`__int128` on GCC/Clang, `_div128` on MSVC).
 //   * the double conversions use `llround` (round half away from zero) and are
 //     meant for the Vec3/Real boundary only, never the hot loop.
+//
+// NOT saturating: a product (or, via repeated multiplication, a sum of
+// products) whose true magnitude exceeds ~2^31 silently wraps two's-complement
+// rather than clamping or erroring — there is no runtime range check on the
+// hot arithmetic path (this is a scalar primitive used millions of times per
+// second; a check-and-saturate here would cost real throughput to guard
+// against inputs no real physics scenario reaching Fx32 produces). Callers
+// feeding `Determinism::BitExact` are expected to stay within the documented
+// range above; poncelet-planning/bug-hunting-checklist.md §2 confirmed this
+// is wraparound, not a crash or NaN-equivalent, for an absurd (e.g. > c)
+// launch speed — see tests/test_main.cpp's
+// `bitexact_absurd_speed_stays_finite_for_one_frame`.
 
 #include <cmath>
 #include <cstdint>
@@ -2759,9 +2774,17 @@ struct Fx32 {
 #if defined(_MSC_VER) && defined(_M_X64)
         std::int64_t hi;
         std::uint64_t lo = static_cast<std::uint64_t>(_mul128(a.raw, b.raw, &hi));
-        // arithmetic (a.raw*b.raw) >> 32 across the 128-bit product
-        std::int64_t r = (hi << 32) | static_cast<std::int64_t>(lo >> 32);
-        return Fx32(r, 0);
+        // arithmetic (a.raw*b.raw) >> 32 across the 128-bit product. Combine
+        // through uint64_t rather than `hi << 32` on the signed hi half: a
+        // signed left shift whose result doesn't fit is UB pre-C++20 (this
+        // project targets C++17) whenever the true product is out of Fx32's
+        // representable range — reachable from an absurd but not-rejected
+        // caller input (see this file's header comment). The unsigned combine
+        // yields the identical bit pattern for every in-range product (pure
+        // bit manipulation, no value semantics involved) and a defined
+        // two's-complement wrap instead of UB for an out-of-range one.
+        std::uint64_t r = (static_cast<std::uint64_t>(hi) << 32) | (lo >> 32);
+        return Fx32(static_cast<std::int64_t>(r), 0);
 #else
         __int128 p = static_cast<__int128>(a.raw) * static_cast<__int128>(b.raw);
         return Fx32(static_cast<std::int64_t>(p >> 32), 0);
@@ -9628,7 +9651,13 @@ void Sim::emitTrace(TraceKind kind, const ProjectileState& s,
 }
 
 const ProjectileState& Sim::state(StateId id) const {
-    static const ProjectileState kNull{};
+    // ProjectileState::alive defaults to true (every real spawn() sets it
+    // explicitly, so that default is never otherwise observed) — a plain
+    // `ProjectileState{}` sentinel would report an out-of-range id as alive,
+    // and `while (sim.state(id).alive)` is the exact idiom this codebase's
+    // own examples/tests use to drive a shot loop. Force it false here so an
+    // invalid handle reads as unambiguously dead.
+    static const ProjectileState kNull = [] { ProjectileState s; s.alive = false; return s; }();
     return id < states_.size() ? states_[id] : kNull;
 }
 

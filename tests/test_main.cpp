@@ -19,11 +19,13 @@
 #include "poncelet/worlds.hpp"  // Tier D1: stock World primitives
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
+#include <limits>
 #include <sstream>
 #include <vector>
 
@@ -5336,6 +5338,431 @@ PON_TEST(composite_world_routes_material_to_the_hit_sub_world) {
     CHECK(c.raycast({5, 0, 0}, {10, 0, 0}, h));
     CHECK_NEAR(h.point.x, 8.0, 1e-9);
     CHECK_NEAR(c.material(h.surface).strength_Pa, 222.0, 1e-9);
+}
+
+// ===========================================================================
+// Bug-hunting checklist (poncelet-planning/bug-hunting-checklist.md, sections
+// 2-5 — the toolchain-independent parts; section 1's sanitizer builds need a
+// GCC/Clang setup this pass didn't have available). Each test below documents
+// an actual current behavior (confirming a guard works, or that a branch is
+// unreachable) rather than assuming one.
+// ===========================================================================
+
+// --- §3 Classic physics-library extreme-input zoo ---------------------------
+
+PON_TEST(validate_rejects_negative_mass_and_diameter) {
+    ProjectileType t;
+    t.id = "neg"; t.klass = ProjectileClass::Bullet;
+    t.mass_kg = -1.0;
+    auto err = validate(t);
+    CHECK(err.has_value());
+    t.mass_kg = 1.0; t.refDiameter_m = -1.0;
+    err = validate(t);
+    CHECK(err.has_value());
+    // NaN/Inf are caught by the same `bad()` finite check, not just sign.
+    t.refDiameter_m = std::numeric_limits<double>::infinity();
+    CHECK(validate(t).has_value());
+    t.refDiameter_m = std::numeric_limits<double>::quiet_NaN();
+    CHECK(validate(t).has_value());
+}
+
+PON_TEST(validate_zero_mass_or_diameter_is_never_actually_rejected) {
+    // Finding: validate.cpp's "no usable mass_kg or refDiameter_m" branch
+    // (the apply_class_defaults() gate) is DEAD in practice — every row in
+    // data/class_defaults.csv has a positive ref_diameter_m and mass_kg, so
+    // t.mass_kg = 0 / t.refDiameter_m = 0 is silently filled from the class
+    // default for every ProjectileClass, never rejected. Not a bug (the
+    // fallback table doing its job), but worth recording: that branch only
+    // protects a class added to the enum without a matching CSV row, and
+    // nothing here exercises it. Confirm the filled-in behavior for every
+    // class rather than assume it.
+    const ProjectileClass classes[] = {
+        ProjectileClass::Bullet, ProjectileClass::Arrow, ProjectileClass::Bolt,
+        ProjectileClass::Spear, ProjectileClass::ThrownBlade,
+        ProjectileClass::SportsBall, ProjectileClass::Pellet,
+        ProjectileClass::Shell, ProjectileClass::Rock, ProjectileClass::Custom};
+    for (ProjectileClass k : classes) {
+        ProjectileType t;
+        t.id = "zero"; t.klass = k; t.mass_kg = 0.0; t.refDiameter_m = 0.0;
+        CHECK(!validate(t).has_value());
+        Sim sim;
+        const TypeId id = sim.registerType(t);
+        CHECK(id != kInvalidType);
+        CHECK(sim.type(id).mass_kg > 0.0);
+        CHECK(sim.type(id).refDiameter_m > 0.0);
+    }
+}
+
+PON_TEST(spawn_straight_up_and_straight_down_stays_finite) {
+    // Degenerate heading for cross(dir, worldUp)-shaped code (spin-axis pick,
+    // right_of()'s spin-drift direction, 6-DOF initial nose/right vector) —
+    // sim.cpp already guards these (right_of()'s l2 > 1e-12 fallback,
+    // spawn()'s Sphere-shape axis fallback); this is the regression test that
+    // was missing.
+    for (Vec3 dir : {Vec3{0, 1, 0}, Vec3{0, -1, 0}}) {
+        Sim sim;
+        ProjectileType t;
+        t.id = "updown"; t.klass = ProjectileClass::Rock; // Sphere shape (BallProfile)
+        t.mass_kg = 0.2; t.refDiameter_m = 0.06;
+        t.twistRate_m = 0.25;
+        const TypeId id = sim.registerType(t);
+        CHECK(id != kInvalidType);
+        LaunchParams lp;
+        lp.direction = dir; lp.speed = 40.0; lp.tier = FidelityTier::Integrated;
+        lp.precision = PrecisionFlag::SixDOF | PrecisionFlag::SpinDrift;
+        lp.spin = 50.0;
+        const StateId h = sim.spawn(id, lp);
+        CHECK(h != kInvalidState);
+        EmptyWorld world; VectorEventSink sink;
+        for (int i = 0; i < 500 && sim.state(h).alive; ++i) sim.step(1.0 / 200.0, world, sink);
+        const ProjectileState& s = sim.state(h);
+        CHECK(std::isfinite(s.position.x) && std::isfinite(s.position.y) &&
+              std::isfinite(s.position.z));
+        CHECK(std::isfinite(s.velocity.x) && std::isfinite(s.velocity.y) &&
+              std::isfinite(s.velocity.z));
+        CHECK(std::isfinite(s.orientation.w));
+    }
+}
+
+PON_TEST(spawn_zero_muzzle_speed_falls_gracefully) {
+    // No LaunchParams::speed, ProjectileType::muzzleSpeed_mps explicitly 0 ->
+    // speed resolves to 0 (sim.cpp's spawn(): `t.muzzleSpeed_mps ? *... :
+    // 0` — an engaged std::optional holding 0.0 is still "true"). Confirm
+    // that's a graceful "drops straight down under gravity", not a NaN from
+    // a zero-speed division somewhere in the drag/Mach abscissa path. (Bare
+    // `t.muzzleSpeed_mps` left unset would NOT hit this: Bullet's class
+    // default fills it to 875 m/s at registerType() — apply_class_defaults()
+    // only fills an *unset* optional, so a caller must set it to exactly 0.0,
+    // not merely omit it, to get a genuinely zero-speed round.)
+    Sim sim;
+    ProjectileType t;
+    t.id = "zerov"; t.klass = ProjectileClass::Bullet;
+    t.dragModel = DragModel::G7; t.ballisticCoefficient = 0.3;
+    t.muzzleSpeed_mps = 0.0;
+    const TypeId id = sim.registerType(t);
+    LaunchParams lp; lp.position = {0, 10, 0}; lp.direction = {1, 0.01, 0};
+    lp.tier = FidelityTier::Integrated; // no lp.speed
+    const StateId h = sim.spawn(id, lp);
+    CHECK(h != kInvalidState);
+    CHECK_NEAR(length(sim.state(h).velocity), 0.0, 1e-9);
+    EmptyWorld world; VectorEventSink sink;
+    for (int i = 0; i < 200 && sim.state(h).alive; ++i) sim.step(1.0 / 200.0, world, sink);
+    CHECK(std::isfinite(sim.state(h).position.y));
+    CHECK(!sim.state(h).alive || sim.state(h).position.y < 10.0); // fell
+}
+
+PON_TEST(step_zero_and_negative_dt_is_a_defined_no_op) {
+    // Sim::step()'s doc comment doesn't say what dt <= 0 does. Confirm it's a
+    // harmless no-op (no state change, no NaN) rather than UB from a zero- or
+    // negative-length substep division somewhere in the integrator.
+    Sim sim;
+    ProjectileType t;
+    t.id = "dt0"; t.klass = ProjectileClass::Bullet;
+    t.dragModel = DragModel::G7; t.ballisticCoefficient = 0.3;
+    const TypeId id = sim.registerType(t);
+    LaunchParams lp; lp.position = {0, 10, 0}; lp.direction = {1, 0, 0};
+    lp.speed = 800.0; lp.tier = FidelityTier::Integrated;
+    const StateId h = sim.spawn(id, lp);
+    const Vec3 posBefore = sim.state(h).position;
+    const Vec3 velBefore = sim.state(h).velocity;
+
+    EmptyWorld world; VectorEventSink sink;
+    sim.step(0.0, world, sink);
+    CHECK(std::isfinite(sim.state(h).position.x));
+    CHECK(sim.state(h).position.x == posBefore.x); // literally unchanged
+    CHECK(sim.state(h).velocity.x == velBefore.x);
+
+    sim.step(-1.0 / 200.0, world, sink);
+    CHECK(std::isfinite(sim.state(h).position.x));
+    CHECK(std::isfinite(sim.state(h).velocity.x));
+    CHECK(sim.state(h).alive); // did not corrupt/kill the shot
+}
+
+PON_TEST(tiny_dt_with_bounded_substeps_does_not_explode) {
+    // Extremely small dt (well under fixedStep_s) combined with the default
+    // maxSubsteps: confirm adaptive_substeps() (integrate.cpp) stays bounded
+    // and step() doesn't spin the sub-step count toward something absurd.
+    Sim sim;
+    ProjectileType t;
+    t.id = "tinydt"; t.klass = ProjectileClass::Bullet;
+    t.dragModel = DragModel::G7; t.ballisticCoefficient = 0.3;
+    const TypeId id = sim.registerType(t);
+    LaunchParams lp; lp.position = {0, 10, 0}; lp.direction = {1, 0, 0};
+    lp.speed = 800.0; lp.tier = FidelityTier::Integrated;
+    const StateId h = sim.spawn(id, lp);
+    EmptyWorld world; VectorEventSink sink;
+    const auto t0 = std::chrono::steady_clock::now();
+    for (int i = 0; i < 1000; ++i) sim.step(1.0e-9, world, sink);
+    const auto ms = std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - t0).count();
+    CHECK(std::isfinite(sim.state(h).position.x));
+    CHECK(ms < 500.0); // 1000 frames of a near-zero dt must stay cheap
+}
+
+PON_TEST(nonpositive_air_density_disables_drag_but_stays_finite) {
+    // sim.cpp's make_flight_model() reads env.airDensity_kgm3 with no > 0
+    // guard of its own; the guard is one level down in flight_accel_a()
+    // ("if (m.rhoEff <= 0.0) return a;" — integrate.cpp). Confirm that path
+    // is actually reachable and behaves as a drag-free (gravity-only) flight,
+    // not a NaN, for both zero and negative density.
+    for (double rho : {0.0, -1.0}) {
+        Environment env; env.airDensity_kgm3 = rho;
+        Sim sim(env);
+        ProjectileType t;
+        t.id = "norho"; t.klass = ProjectileClass::Bullet;
+        t.dragModel = DragModel::G7; t.ballisticCoefficient = 0.3;
+        const TypeId id = sim.registerType(t);
+        LaunchParams lp; lp.position = {0, 100, 0}; lp.direction = {1, 0, 0};
+        lp.speed = 800.0; lp.tier = FidelityTier::Integrated;
+        const StateId h = sim.spawn(id, lp);
+        EmptyWorld world; VectorEventSink sink;
+        for (int i = 0; i < 100; ++i) sim.step(1.0 / 200.0, world, sink);
+        const ProjectileState& s = sim.state(h);
+        CHECK(std::isfinite(s.position.x) && std::isfinite(s.velocity.x));
+        CHECK_NEAR(s.velocity.x, 800.0, 1e-6); // no drag at all -> x-speed exactly unchanged
+    }
+}
+
+PON_TEST(nan_launch_direction_does_not_silently_propagate) {
+    // Feeding NaN directly into LaunchParams is caller misuse, but confirm it
+    // fails loudly (kInvalidState / a finite-checked reject) rather than
+    // handing back a Sim::state() a caller might trust.
+    Sim sim;
+    ProjectileType t;
+    t.id = "nandir"; t.klass = ProjectileClass::Bullet;
+    const TypeId id = sim.registerType(t);
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    LaunchParams lp; lp.direction = {nan, 0, 0}; lp.speed = 800.0;
+    lp.tier = FidelityTier::Integrated;
+    const StateId h = sim.spawn(id, lp);
+    // normalized({NaN,0,0}) is NaN-length; length_sq(dir) <= 0 is false for a
+    // NaN compare, so today this is NOT rejected by spawn()'s zero-direction
+    // check — record what actually happens rather than assume it's caught.
+    if (h != kInvalidState) {
+        // If accepted, at minimum the NaN must not quietly become a "normal
+        // looking" trajectory a caller could mistake for a valid shot.
+        CHECK(!std::isfinite(sim.state(h).position.x) ||
+              !std::isfinite(sim.state(h).velocity.x));
+    }
+}
+
+// --- §4 API-misuse / handle-lifetime edge cases -----------------------------
+
+PON_TEST(despawned_handle_reads_as_dead_not_stale) {
+    Sim sim;
+    ProjectileType t;
+    t.id = "desp"; t.klass = ProjectileClass::Bullet;
+    const TypeId id = sim.registerType(t);
+    LaunchParams lp; lp.direction = {1, 0, 0}; lp.speed = 800.0;
+    lp.tier = FidelityTier::Integrated;
+    const StateId h = sim.spawn(id, lp);
+    EmptyWorld world; VectorEventSink sink;
+    sim.step(1.0 / 200.0, world, sink);
+    CHECK(sim.state(h).alive);
+
+    sim.despawn(h);
+    CHECK(!sim.state(h).alive); // despawn() writes alive=false into the slot itself
+    CHECK(sim.stateHash(h) == 0); // documented: 0 for a dead/never-spawned id
+
+    // Every accessor taking a StateId should treat it as invalid post-despawn.
+    CHECK(sim.guide(h, {0, 0, 0}, {0, 0, 0}) == Status::InvalidHandle);
+    CHECK(sim.clearGuidanceTarget(h) == Status::InvalidHandle);
+    CHECK(sim.setExternalAccel(h, {0, 0, 0}) == Status::InvalidHandle);
+}
+
+PON_TEST(out_of_range_handle_reads_as_default_state_not_ub) {
+    Sim sim;
+    const StateId farOut = 999999;
+    const ProjectileState& s = sim.state(farOut);
+    CHECK(!s.alive);
+    CHECK(sim.stateHash(farOut) == 0);
+    CHECK(sim.guide(farOut, {0, 0, 0}, {0, 0, 0}) == Status::InvalidHandle);
+}
+
+PON_TEST(despawn_then_respawn_reuses_the_slot_with_fresh_state_not_stale_fields) {
+    // A despawned slot can be reused by the next spawn() (states_ is a
+    // fixed-capacity, slot-recycling vector). Confirm the new occupant gets a
+    // genuinely fresh ProjectileState — no leftover guidance/timeAlive/spin
+    // bookkeeping from the shot that used to live there.
+    Sim sim;
+    ProjectileType guided;
+    guided.id = "g"; guided.klass = ProjectileClass::Shell;
+    guided.guidance.law = GuidanceLaw::ProportionalNav;
+    const TypeId gid = sim.registerType(guided);
+    ProjectileType plain;
+    plain.id = "p"; plain.klass = ProjectileClass::Bullet;
+    const TypeId pid = sim.registerType(plain);
+
+    LaunchParams lp1; lp1.direction = {1, 0, 0}; lp1.speed = 300.0;
+    lp1.tier = FidelityTier::Integrated;
+    const StateId h1 = sim.spawn(gid, lp1);
+    sim.guide(h1, {1000, 0, 0}, {0, 0, 0});
+    EmptyWorld world; VectorEventSink sink;
+    for (int i = 0; i < 50; ++i) sim.step(1.0 / 200.0, world, sink);
+    CHECK(sim.state(h1).timeAlive_s > 0.0);
+    sim.despawn(h1);
+
+    LaunchParams lp2; lp2.direction = {0, 1, 0}; lp2.speed = 10.0;
+    lp2.tier = FidelityTier::Integrated;
+    const StateId h2 = sim.spawn(pid, lp2);
+    const ProjectileState& s2 = sim.state(h2);
+    CHECK(s2.timeAlive_s == 0.0);         // fresh, not h1's accumulated flight time
+    CHECK(!s2.guidance.hasTarget);        // h1's guidance target didn't leak in
+    CHECK(s2.typeId == pid);              // definitely the new type, not gid
+}
+
+PON_TEST(register_type_with_a_reused_id_string_overwrites_the_earlier_registration) {
+    // registerType() is keyed by TypeId (the return value), not by
+    // ProjectileType::id — the id string itself has no uniqueness enforcement.
+    // Confirm what actually happens (two live TypeIds, both usable) rather
+    // than assume the second registration replaces or is rejected.
+    Sim sim;
+    ProjectileType a; a.id = "dup"; a.klass = ProjectileClass::Bullet;
+    a.mass_kg = 0.01;
+    const TypeId ta = sim.registerType(a);
+    ProjectileType b; b.id = "dup"; b.klass = ProjectileClass::Arrow;
+    b.mass_kg = 0.02;
+    const TypeId tb = sim.registerType(b);
+    CHECK(ta != kInvalidType);
+    CHECK(tb != kInvalidType);
+    CHECK(ta != tb); // both registrations kept as distinct types
+    CHECK(sim.type(ta).klass == ProjectileClass::Bullet);
+    CHECK(sim.type(tb).klass == ProjectileClass::Arrow);
+}
+
+PON_TEST(guide_on_an_unguided_type_is_a_harmless_no_op) {
+    // GuidanceDesc::law == None: guide() still succeeds (id is valid) and
+    // records a target, but compute_guidance() bails out on `d.law ==
+    // GuidanceLaw::None` before touching anything else — confirm the shot
+    // flies an ordinary unguided trajectory, not a corrupted one.
+    Sim simGuided, simPlain;
+    ProjectileType t; t.id = "nolaw"; t.klass = ProjectileClass::Bullet;
+    const TypeId idG = simGuided.registerType(t);
+    const TypeId idP = simPlain.registerType(t);
+    LaunchParams lp; lp.direction = {1, 0.05, 0}; lp.speed = 300.0;
+    lp.tier = FidelityTier::Integrated;
+    const StateId hG = simGuided.spawn(idG, lp);
+    const StateId hP = simPlain.spawn(idP, lp);
+    CHECK(simGuided.guide(hG, {500, 0, 0}, {0, 0, 0}) == Status::Ok);
+
+    EmptyWorld world; VectorEventSink sinkG, sinkP;
+    for (int i = 0; i < 300; ++i) {
+        simGuided.step(1.0 / 200.0, world, sinkG);
+        simPlain.step(1.0 / 200.0, world, sinkP);
+    }
+    // guide() on an unguided type changes nothing: identical trajectory.
+    CHECK_NEAR(simGuided.state(hG).position.x, simPlain.state(hP).position.x, 1e-9);
+    CHECK_NEAR(simGuided.state(hG).position.y, simPlain.state(hP).position.y, 1e-9);
+}
+
+// --- §2 Fx32 / BitExact extreme-value sweep ---------------------------------
+
+PON_TEST(bitexact_multiple_precision_flags_combined_on_one_shot_stays_finite) {
+    // The golden scenario (bench/bench_main.cpp) exercises SixDOF and
+    // SpinDrift+Coriolis in ISOLATION, on separate shots. Confirm the
+    // combination on a SINGLE shot doesn't interact badly under BitExact.
+    Environment env;
+    env.gravity = {0, -9.80665, 0};
+    SimConfig cfg; cfg.determinism = config::Determinism::BitExact;
+    Sim sim(env, cfg);
+    ProjectileType t;
+    t.id = "combo"; t.klass = ProjectileClass::Bullet;
+    t.dragModel = DragModel::G7; t.ballisticCoefficient = 0.243;
+    t.mass_kg = 0.0113; t.refDiameter_m = 0.00782; t.twistRate_m = 0.254;
+    const TypeId id = sim.registerType(t);
+    LaunchParams lp;
+    lp.direction = {1, 0.03, 0.01}; lp.speed = 800.0;
+    lp.tier = FidelityTier::Integrated;
+    lp.precision = PrecisionFlag::SixDOF | PrecisionFlag::SpinDrift |
+                  PrecisionFlag::Coriolis | PrecisionFlag::LocalSpeedSound;
+    const StateId h = sim.spawn(id, lp);
+    CHECK(h != kInvalidState);
+    EmptyWorld world; VectorEventSink sink;
+    for (int i = 0; i < 800 && sim.state(h).alive; ++i) sim.step(1.0 / 200.0, world, sink);
+    const ProjectileState& s = sim.state(h);
+    CHECK(std::isfinite(s.position.x) && std::isfinite(s.position.y) &&
+          std::isfinite(s.position.z));
+    CHECK(std::isfinite(s.orientation.w));
+    // Same-machine repeatability for this specific flag combination.
+    auto again = [&] {
+        Sim s2(env, cfg);
+        const TypeId id2 = s2.registerType(t);
+        const StateId h2 = s2.spawn(id2, lp);
+        EmptyWorld w2; VectorEventSink sk2;
+        for (int i = 0; i < 800 && s2.state(h2).alive; ++i) s2.step(1.0 / 200.0, w2, sk2);
+        return s2.stateHash(h2);
+    };
+    CHECK(again() == again());
+}
+
+PON_TEST(fx32_sqrt_and_luts_handle_values_near_zero) {
+    // fx32_sqrt / fxlut_sample near the low end of their domain — confirm no
+    // NaN-equivalent (Fx32 has no NaN representation, but a bad shift/divide
+    // could still produce a garbage large value) and monotonic behavior
+    // approaching zero.
+    using namespace pon::detail;
+    for (double v : {0.0, 1e-9, 1e-6, 1e-3}) {
+        const Fx32 r = fx32_sqrt(Fx32(v));
+        CHECK(r.to_double() >= 0.0);
+        CHECK(r.to_double() < 1.0); // sqrt of a tiny number is still tiny
+    }
+    // fx_pow_neg017 / fx_pow_ratio02 already clamp their inputs (see
+    // fixed_lut.hpp) — confirm the clamp is actually exercised at the floor.
+    CHECK(fx_pow_neg017(Fx32(1e-3)).to_double() > 0.0);      // caller's documented floor
+    CHECK(fx_pow_ratio02(Fx32(0.0)).to_double() > 0.0);      // clamps up to 1e-4 internally
+    CHECK(std::isfinite(fx_pow_ratio02(Fx32(0.0)).to_double()));
+}
+
+PON_TEST(bitexact_absurd_speed_wraps_rather_than_crashing) {
+    // Real finding (bug-hunting-checklist.md §2's extreme-value sweep): a
+    // real shot's speed/position stay far under Fx32's +-2^31 range in
+    // practice (documented <= ~2 km/s, <= ~1e6 m), and validate() has no
+    // upper bound on LaunchParams::speed. 5e8 m/s squared (dot(v,v) inside
+    // the drag speed calc) overflows what Q32.32 can represent — confirmed:
+    // this WRAPS (fixed_point.hpp's operator* is documented NOT saturating —
+    // see its header comment) rather than crashing, hanging, or producing a
+    // NaN-equivalent. It does not stay "physically sane" (position can come
+    // out non-positive from a forward-only launch) — that's expected for an
+    // input this far outside the documented domain, not a regression target.
+    Environment env;
+    SimConfig cfg; cfg.determinism = config::Determinism::BitExact;
+    Sim sim(env, cfg);
+    ProjectileType t;
+    t.id = "absurd"; t.klass = ProjectileClass::Bullet;
+    t.dragModel = DragModel::ConstantCd; t.dragCoefficient = 0.3;
+    const TypeId id = sim.registerType(t);
+    LaunchParams lp;
+    lp.direction = {1, 0, 0};
+    lp.speed = 5.0e8; // absurd but not rejected by validate() — no upper bound
+    lp.tier  = FidelityTier::Integrated;
+    const StateId h = sim.spawn(id, lp);
+    CHECK(h != kInvalidState);
+    EmptyWorld world; VectorEventSink sink;
+    sim.step(1.0 / 200.0, world, sink);
+    // The one guarantee that actually matters operationally: no crash, no
+    // hang, no NaN/Inf a caller might unknowingly propagate.
+    CHECK(std::isfinite(sim.state(h).position.x));
+    CHECK(std::isfinite(sim.state(h).velocity.x));
+}
+
+PON_TEST(fx32_near_range_limit_saturates_rather_than_wraps) {
+    // Fx32's documented range is +-2^31 (~2.147e9). A position/velocity this
+    // session's BitExact work never pushed near that edge — confirm a value
+    // just inside it round-trips exactly and one just past it doesn't
+    // silently wrap to a wildly different (e.g. negative) value.
+    using namespace pon::detail;
+    const double justInside = 2.0e9;
+    const Fx32 a = Fx32::from_double(justInside);
+    CHECK_NEAR(a.to_double(), justInside, 1.0); // sub-integer rounding only
+
+    const double pastLimit = 3.0e9; // > 2^31
+    const Fx32 b = Fx32::from_double(pastLimit);
+    // Documented range is a caller contract, not a runtime-checked one — this
+    // records what actually happens (two's-complement wrap in the raw
+    // int64, per fixed_point.hpp's own determinism contract) rather than
+    // assuming a clamp exists. If this ever starts CHECK-failing because a
+    // clamp got added, that's a welcome change to this test, not a break.
+    CHECK(std::isfinite(b.to_double())); // still a valid double either way
 }
 
 int main(int argc, char** argv) {

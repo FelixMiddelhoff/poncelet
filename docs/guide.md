@@ -1731,6 +1731,20 @@ next `step`. Re-fetch it each frame; do not cache the reference across steps.
 
 **Ids came back that I had already despawned.** Slots are recycled. Do not hold
 ids for dead projectiles; check `state(id).alive` or track lifetime via events.
+`state(id).alive` is reliably `false` both for a despawned id and for one that
+was never spawned at all (out-of-range or on a fresh `Sim`) — the latter used
+to read as `true` (a plain `ProjectileState{}`'s own default), fixed in the
+2026-09-12 bug-hunting pass; `while (sim.state(id).alive)` is safe against a
+bad id today.
+
+**Is `Determinism::BitExact` safe for an absurd input?** The Q32.32 `Fx32`
+core (±2^31 range) is deliberately NOT saturating on overflow — a velocity or
+position far outside the documented range (≤ ~2 km/s, ≤ ~1e6 m) wraps rather
+than clamping or erroring, since a runtime range check on the hot arithmetic
+path would cost real throughput for inputs no real physics scenario produces.
+Stays finite (no crash, no NaN) either way; just don't expect a physically
+sane trajectory from a physically absurd input. See `fixed_point.hpp`'s
+header comment.
 
 **Which `dt` should I pass to `step`?** Your frame delta. The Sim sub-steps
 internally at `SimConfig::fixedStep_s` (default 1 ms) regardless, so a large or
