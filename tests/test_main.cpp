@@ -5655,6 +5655,87 @@ PON_TEST(guide_on_an_unguided_type_is_a_harmless_no_op) {
     CHECK_NEAR(simGuided.state(hG).position.y, simPlain.state(hP).position.y, 1e-9);
 }
 
+// --- §5 Fuzz corpus review --------------------------------------------------
+
+PON_TEST(validation_fuzz_stresses_bitexact_and_precision_flag_combinations) {
+    // Every existing validation_*_fuzz_* sweep (this file's earlier
+    // validation_fuzz_random_shots_stay_finite, validation_sixdof_fuzz_*,
+    // validation_guidance_fuzz_*) runs PlatformStable only, and either
+    // PrecisionFlag::None or one fixed flag — never Determinism::BitExact,
+    // never a randomized COMBINATION of precision flags, and never a
+    // near-vertical launch or a zero speed among their randomized draws.
+    // This session's own Fx32-multiply-UB find (fixed_point.hpp) came from
+    // manual extreme-value testing, not fuzzing — this sweep adds exactly
+    // those axes on top of a similar shot-parameter space, so a random
+    // combination a hand-picked test wouldn't think to construct gets a
+    // chance to surface the same way.
+    Rng rng(0xB19FEED);
+    const ProjectileClass classes[] = {
+        ProjectileClass::Bullet, ProjectileClass::Arrow, ProjectileClass::Shell};
+    const config::Determinism dets[] = {
+        config::Determinism::Loose, config::Determinism::PlatformStable,
+        config::Determinism::BitExact};
+    const PrecisionFlag flagSets[] = {
+        PrecisionFlag::None,
+        PrecisionFlag::SixDOF,
+        PrecisionFlag::SpinDrift,
+        PrecisionFlag::Coriolis,
+        PrecisionFlag::LocalSpeedSound,
+        PrecisionFlag::SixDOF | PrecisionFlag::SpinDrift,
+        PrecisionFlag::SpinDrift | PrecisionFlag::Coriolis | PrecisionFlag::LocalSpeedSound,
+        PrecisionFlag::SixDOF | PrecisionFlag::SpinDrift | PrecisionFlag::Coriolis |
+            PrecisionFlag::LocalSpeedSound};
+
+    int bad = 0, exercised = 0;
+    for (int k = 0; k < 400; ++k) {
+        Environment env;
+        SimConfig cfg;
+        cfg.determinism = dets[rng.range(3)];
+        Sim sim(env, cfg);
+
+        ProjectileType t;
+        t.id = "bx_fuzz";
+        t.klass = classes[rng.range(3)];
+        t.dragModel = DragModel::G7;
+        t.ballisticCoefficient = rng.uniform(0.05, 0.6);
+        t.mass_kg = rng.uniform(0.005, 5.0);
+        t.refDiameter_m = rng.uniform(0.004, 0.15);
+        t.twistRate_m = rng.uniform(0.0, 1.0) < 0.5 ? 0.25 : -0.25;
+        t.maxLifetime_s = 3.0; // every shot must terminate within the step budget
+        const TypeId id = sim.registerType(t);
+        if (id == kInvalidType) continue;
+
+        LaunchParams lp;
+        lp.position = {0, rng.uniform(0.0, 3.0), 0};
+        // Wider than every existing sweep: pitch spans near-straight-up to
+        // near-straight-down, not just a mostly-horizontal band.
+        lp.direction = {rng.uniform(-1, 1), rng.uniform(-0.95, 0.95), rng.uniform(-1, 1)};
+        // Occasionally exactly zero speed (§3's own edge case), otherwise the
+        // usual wide range.
+        lp.speed = rng.uniform(0.0, 1.0) < 0.05 ? 0.0 : rng.uniform(20.0, 1400.0);
+        lp.tier = FidelityTier::Integrated;
+        lp.precision = flagSets[rng.range(8)];
+        lp.spin = rng.uniform(0.0, 20000.0);
+        const StateId h = sim.spawn(id, lp);
+        if (h == kInvalidState) continue;
+
+        EmptyWorld world; VectorEventSink sink;
+        int steps = 0;
+        for (; steps < 6000 && sim.state(h).alive; ++steps)
+            sim.step(1.0 / 500.0, world, sink);
+        ++exercised;
+
+        const ProjectileState& s = sim.state(h);
+        const bool finite = std::isfinite(s.position.x) && std::isfinite(s.position.y) &&
+                            std::isfinite(s.position.z) && std::isfinite(s.velocity.x) &&
+                            std::isfinite(s.velocity.y) && std::isfinite(s.velocity.z) &&
+                            std::isfinite(s.orientation.w);
+        if (!finite || steps >= 6000) ++bad;
+    }
+    CHECK(exercised > 350); // most random descriptions are usable
+    CHECK(bad == 0);
+}
+
 // --- §2 Fx32 / BitExact extreme-value sweep ---------------------------------
 
 PON_TEST(bitexact_multiple_precision_flags_combined_on_one_shot_stays_finite) {
