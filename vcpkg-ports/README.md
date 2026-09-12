@@ -4,14 +4,19 @@
 vcpkg install poncelet --overlay-ports=<path-to-this-repo>/vcpkg-ports
 ```
 
-Works today, no public remote required — see `poncelet/portfile.cmake`'s
-header comment for how (a local `file://` git clone of this checkout, until
-poncelet has a real remote + tagged release to point at instead).
+Pinned to the `v1.0.0` tag with a checked SHA512 — this is now written in the
+same format a real `microsoft/vcpkg` `ports/poncelet/` submission needs
+(`vcpkg_from_github` with a fixed `REF`+`SHA512`, a `usage` file, `homepage`
+in `vcpkg.json`).
 
-This is an **overlay port**, not a submission to the central vcpkg registry
-(`microsoft/vcpkg`) — that's a separate step (a PR there, their own CI/review),
-not doable without a real GitHub remote and a maintainer identity to submit
-under.
+**Not yet submitted to the central registry.** vcpkg's Maintainer Guide
+requires a project be "mature" — a release ≥6 months old, or ≥6 months of
+active public development — before a new-port PR will be accepted. poncelet's
+public repo is from 2026-09-11; earliest reasonable submission date is
+~2027-03. When that date arrives: re-derive the SHA512 against whatever tag
+is current then (checksums are tag-specific, this one is stale the moment
+`v1.0.0` moves), run `vcpkg x-add-version poncelet`, and open the PR as a
+Draft against `microsoft/vcpkg` with this port copied into `ports/poncelet/`.
 
 Static library only (`vcpkg_check_linkage(ONLY_STATIC_LIBRARY)`) — poncelet's
 `PONCELET_SHARED` CMake option adds a second, un-aliased `poncelet_shared`
