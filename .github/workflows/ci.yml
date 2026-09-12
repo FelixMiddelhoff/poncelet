@@ -29,7 +29,18 @@ jobs:
         # proves same-machine repeatability, same as the RKF45 check.
         shell: bash
         run: |
-          BIN=$(find build -maxdepth 2 -name "poncelet_bench*" -type f | head -1)
+          # Explicit candidate paths, not a `find -name "poncelet_bench*"` glob:
+          # that wildcard used to match build/poncelet_bench.vcxproj (Windows
+          # multi-config generators drop CMake project files next to the build
+          # tree) before the real build/${{ matrix.config }}/poncelet_bench.exe,
+          # so $BIN silently ran an XML file as a shell script on windows-latest
+          # (harmless — `|| true` below — but no digest ever printed there).
+          BIN=""
+          for c in "build/poncelet_bench" "build/poncelet_bench.exe" \
+                   "build/${{ matrix.config }}/poncelet_bench" \
+                   "build/${{ matrix.config }}/poncelet_bench.exe"; do
+            if [ -f "$c" ]; then BIN="$c"; break; fi
+          done
           "$BIN" --bitexact-per-shot || true
           "$BIN" --bitexact-frame-trace || true
           "$BIN" --bitexact-guidance-print || true
