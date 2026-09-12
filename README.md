@@ -1,6 +1,9 @@
 # poncelet
 
 [![ci](https://github.com/FelixMiddelhoff/poncelet/actions/workflows/ci.yml/badge.svg)](https://github.com/FelixMiddelhoff/poncelet/actions/workflows/ci.yml)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![C++17](https://img.shields.io/badge/C%2B%2B-17-blue.svg)](https://en.cppreference.com/w/cpp/17)
+[![latest release](https://img.shields.io/github/v/release/FelixMiddelhoff/poncelet)](https://github.com/FelixMiddelhoff/poncelet/releases)
 
 A realistic, very-low-latency **projectile & terminal-ballistics** library for
 games and simulations. Engine-agnostic, MIT-licensed, SI units, C++17 with a
