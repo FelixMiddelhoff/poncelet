@@ -28,7 +28,9 @@ Covers the whole arc of a thing thrown or fired through a world:
   walkthrough, and a reference entry *with an example* for every public call.
 - **[docs/cookbook.md](docs/cookbook.md)** — short copy-pasteable recipes:
   real-dope sniper zero + drop table, shotgun spread, grenade-launcher arc,
-  APFSDS vs plate, arrow, aim-UI trajectory line, server-authoritative hit checks.
+  APFSDS vs plate, arrow, aim-UI trajectory line, server-authoritative hit
+  checks, 6-DOF flight, fragmentation, shaped charge/EFP, guided munitions,
+  destruction coupling.
 - **API reference** — Doxygen HTML from the header comments, published to GitHub
   Pages by `.github/workflows/docs.yml`. Build it locally with
   `cmake --build build --target poncelet_docs` (→ `docs/api/html/index.html`)

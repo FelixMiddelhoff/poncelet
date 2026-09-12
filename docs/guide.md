@@ -55,7 +55,7 @@ walkthrough, and a reference entry with a short example for every public call.
 5. [C API](#c-api)
 6. [Determinism](#determinism) · [Rollback netcode](#rollback-netcode)
 7. [Gotchas and FAQ](#gotchas-and-faq)
-8. [Cookbook](cookbook.md) — copy-pasteable recipes (sniper dope, shotgun, grenade arc, APFSDS, netcode)
+8. [Cookbook](cookbook.md) — copy-pasteable recipes (sniper dope, shotgun, grenade arc, APFSDS, netcode, 6-DOF, fragmentation, shaped charge, guided munitions, destruction coupling)
 
 ---
 
