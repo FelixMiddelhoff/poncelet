@@ -22,12 +22,17 @@ jobs:
         # Sim::stateHash(id) per shot, printed unconditionally so a
         # poncelet_bitexact_golden mismatch on this OS can be diffed
         # against another OS's run to find which shot actually diverges,
-        # in this same log, without a separate round trip.
+        # in this same log, without a separate round trip. Also prints the
+        # guidance-law digest (bitexact-guidance-law-plan.md Phase 4) so the
+        # 6 OS/config jobs' values can be hand-diffed for the actual
+        # cross-platform claim — poncelet_bitexact_guidance_check itself only
+        # proves same-machine repeatability, same as the RKF45 check.
         shell: bash
         run: |
           BIN=$(find build -maxdepth 2 -name "poncelet_bench*" -type f | head -1)
           "$BIN" --bitexact-per-shot || true
           "$BIN" --bitexact-frame-trace || true
+          "$BIN" --bitexact-guidance-print || true
       - name: Test
         # Includes the validation suite (poncelet_validation), the throughput
         # gate (poncelet_perf_gate) and the cross-platform BitExact golden

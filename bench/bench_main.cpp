@@ -308,6 +308,18 @@ static int bitexact_guidance_check() {
     return a == b ? 0 : 1;
 }
 
+// One-shot digest print, unconditional (unlike the ctest above, which only
+// speaks on failure) — CI's informational step runs this on all 6 OS/config
+// jobs so the printed digests can be diffed by hand across the matrix. This
+// is how bitexact-guidance-law-plan.md Phase 4's actual cross-platform claim
+// gets made: poncelet_bitexact_guidance_check only proves same-machine
+// repeatability per job, same as bitexact_rkf45_check; this line is what
+// lets a human (or a future golden-digest commit) compare OS to OS.
+static int bitexact_guidance_print() {
+    std::printf("0x%016llxull\n", (unsigned long long)bitexact_guidance_run());
+    return 0;
+}
+
 // Chasing the macOS-Debug-only residual mismatch (Release is now fixed by
 // the sim.cpp FMA-contraction-off flag; Debug's shot2/shot3 digests are
 // unaffected by that same flag — so it's a second, distinct cause). The
@@ -387,6 +399,7 @@ int main(int argc, char** argv) {
     if (argc > 1 && std::strcmp(argv[1], "--bitexact-golden") == 0) return bitexact_golden();
     if (argc > 1 && std::strcmp(argv[1], "--bitexact-rkf45-check") == 0) return bitexact_rkf45_check();
     if (argc > 1 && std::strcmp(argv[1], "--bitexact-guidance-check") == 0) return bitexact_guidance_check();
+    if (argc > 1 && std::strcmp(argv[1], "--bitexact-guidance-print") == 0) return bitexact_guidance_print();
     if (argc > 1 && std::strcmp(argv[1], "--bitexact-per-shot") == 0) return bitexact_per_shot();
     if (argc > 1 && std::strcmp(argv[1], "--bitexact-frame-trace") == 0) return bitexact_frame_trace();
     if (argc > 1 && std::strcmp(argv[1], "--bitexact-print") == 0) {
