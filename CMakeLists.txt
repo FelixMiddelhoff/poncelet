@@ -233,6 +233,11 @@ if(PONCELET_BUILD_BENCH)
     # the 3-OS-verified scenario, so there's no committed reference digest
     # for it yet); still a real regression gate for this specific fix.
     add_test(NAME poncelet_bitexact_rkf45_check COMMAND poncelet_bench --bitexact-rkf45-check)
+    # Guidance law under BitExact (bitexact-guidance-law-plan.md Phase 4):
+    # compute_guidance() now runs GuidanceCore<Fx32>. Same-machine repeatability
+    # gate, same reasoning as the RKF45 check above — no committed cross-
+    # platform golden for a guided shot yet, so this stays its own ctest.
+    add_test(NAME poncelet_bitexact_guidance_check COMMAND poncelet_bench --bitexact-guidance-check)
   endif()
 endif()
 

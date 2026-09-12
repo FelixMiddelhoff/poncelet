@@ -253,6 +253,61 @@ static int bitexact_rkf45_check() {
     return a == b ? 0 : 1;
 }
 
+// bitexact-guidance-law-plan.md Phase 4: the guidance law's compute_guidance()
+// now runs on the same Core<Acc> pattern under BitExact (poncelet `a2a0474`,
+// GuidanceCore<Fx32> in src/guidance.cpp) — same PN-crossing-target scenario as
+// docs/examples/guided_missile.cpp. Same-machine repeatability only, own ctest
+// (mirrors bitexact_rkf45_run/check above) rather than folded into the 5-shot
+// golden — no 3-OS-verified reference digest for a guided shot exists yet;
+// this is that verification, catching a regression once it does.
+static std::uint64_t bitexact_guidance_run() {
+    Environment env;
+    SimConfig cfg;
+    cfg.determinism = config::Determinism::BitExact;
+    Sim sim(env, cfg);
+
+    ProjectileType sam;
+    sam.id = "bx_guided_sam"; sam.klass = ProjectileClass::Shell;
+    sam.dragModel = DragModel::ConstantCd; sam.dragCoefficient = 0.20;
+    sam.mass_kg = 22.0; sam.refDiameter_m = 0.13;
+    sam.guidance.law               = GuidanceLaw::ProportionalNav;
+    sam.guidance.navConstant       = 4.0;
+    sam.guidance.maxLateralAccel_g = 40.0;
+    sam.guidance.thrustAccel_mps2  = 250.0;
+    sam.guidance.burnTime_s        = 2.0;
+    const TypeId id = sim.registerType(sam);
+
+    LaunchParams lp;
+    lp.position  = {0, 0, 0};
+    lp.direction = {0.55, 0.84, 0};
+    lp.speed     = 350.0;
+    lp.tier      = FidelityTier::Integrated;
+    const StateId m = sim.spawn(id, lp);
+
+    EmptyWorld world;
+    VectorEventSink sink;
+    Vec3 tgt{1500, 600, -400};
+    const Vec3 tgtVel{0, 0, 260};
+    const double dt = 1.0 / 200.0;
+    std::uint64_t digest = 0xCBF29CE484222325ull;
+    for (int f = 0; f < 800 && sim.state(m).alive; ++f) {
+        tgt = tgt + tgtVel * dt;
+        sim.guide(m, tgt, tgtVel);
+        sim.step(dt, world, sink);
+        digest = (digest ^ sim.stateHash()) * 0x100000001B3ull;
+    }
+    return digest;
+}
+
+static int bitexact_guidance_check() {
+    const std::uint64_t a = bitexact_guidance_run();
+    const std::uint64_t b = bitexact_guidance_run();
+    std::printf("bitexact-guidance-check: run A = %016llx  run B = %016llx  %s\n",
+                (unsigned long long)a, (unsigned long long)b,
+                a == b ? "MATCH" : "DIVERGED");
+    return a == b ? 0 : 1;
+}
+
 // Chasing the macOS-Debug-only residual mismatch (Release is now fixed by
 // the sim.cpp FMA-contraction-off flag; Debug's shot2/shot3 digests are
 // unaffected by that same flag — so it's a second, distinct cause). The
@@ -331,6 +386,7 @@ int main(int argc, char** argv) {
     if (argc > 1 && std::strcmp(argv[1], "--det-check") == 0) return det_check();
     if (argc > 1 && std::strcmp(argv[1], "--bitexact-golden") == 0) return bitexact_golden();
     if (argc > 1 && std::strcmp(argv[1], "--bitexact-rkf45-check") == 0) return bitexact_rkf45_check();
+    if (argc > 1 && std::strcmp(argv[1], "--bitexact-guidance-check") == 0) return bitexact_guidance_check();
     if (argc > 1 && std::strcmp(argv[1], "--bitexact-per-shot") == 0) return bitexact_per_shot();
     if (argc > 1 && std::strcmp(argv[1], "--bitexact-frame-trace") == 0) return bitexact_frame_trace();
     if (argc > 1 && std::strcmp(argv[1], "--bitexact-print") == 0) {
