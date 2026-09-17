@@ -1,6 +1,6 @@
 {
   "name": "poncelet",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "description": "Projectile & terminal-ballistics simulation library",
   "homepage": "https://github.com/FelixMiddelhoff/poncelet",
   "license": "MIT",

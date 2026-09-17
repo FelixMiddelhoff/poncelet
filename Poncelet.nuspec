@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Native NuGet package for poncelet — prebuilt shared libraries (win-x64,
+  linux-x64, osx-arm64, matching the CI/release build matrix) plus the C++
+  headers and a stable C ABI (include/poncelet/c_api.h).
+
+  Two consumption paths:
+    - .NET P/Invoke: DllImport("poncelet") resolves the matching
+      runtimes/<rid>/native/ asset automatically via the SDK's RID graph.
+    - Native C++ (MSBuild/VC++ projects, win-x64 only): PackageReference
+      auto-imports build/native/Poncelet.targets, which wires up the include
+      dir, import lib, and a post-build copy of poncelet.dll (the C ABI is
+      declared in include/poncelet/poncelet.h).
+
+  This file is packed by .github/workflows/release.yml (job `nuget`), which
+  stages runtimes/**, build/native/**, and include/ from the same three-OS
+  build matrix as the GitHub Release before invoking `nuget pack`. Version is
+  supplied at pack time (-Version) from the pushed `vX.Y.Z` tag — the
+  $version$ token below is resolved then, not by editing this file per release.
+-->
+<package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
+  <metadata>
+    <id>Poncelet</id>
+    <version>$version$</version>
+    <title>Poncelet</title>
+    <authors>Felix Middelhoff</authors>
+    <owners>Felix Middelhoff</owners>
+    <license type="expression">MIT</license>
+    <projectUrl>https://github.com/FelixMiddelhoff/poncelet</projectUrl>
+    <readme>README.md</readme>
+    <description>Realistic, very-low-latency projectile &amp; terminal-ballistics library for games and simulations. Prebuilt native binaries (win-x64, linux-x64, osx-arm64) with a stable C ABI, for .NET P/Invoke or native C++ (MSBuild) consumers. Engine-agnostic, SI units, C++17.</description>
+    <releaseNotes>https://github.com/FelixMiddelhoff/poncelet/releases</releaseNotes>
+    <tags>ballistics physics simulation native cpp c-abi game-dev projectile</tags>
+    <repository type="git" url="https://github.com/FelixMiddelhoff/poncelet.git" />
+  </metadata>
+  <files>
+    <file src="README.md" target="README.md" />
+    <file src="LICENSE" target="LICENSE" />
+    <file src="nuget-stage\include\**" target="build\native\include" />
+    <file src="nuget-stage\build\Poncelet.targets" target="build\native\Poncelet.targets" />
+    <file src="nuget-stage\build\Poncelet.props" target="build\native\Poncelet.props" />
+    <file src="nuget-stage\runtimes\win-x64\native\**" target="runtimes\win-x64\native" />
+    <file src="nuget-stage\runtimes\linux-x64\native\**" target="runtimes\linux-x64\native" />
+    <file src="nuget-stage\runtimes\osx-arm64\native\**" target="runtimes\osx-arm64\native" />
+  </files>
+</package>

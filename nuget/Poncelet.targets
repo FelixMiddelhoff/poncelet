@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Native (VC++) consumption of the Poncelet NuGet package. Auto-imported by
+  PackageReference for vcxproj-based projects. win-x64 only — the package's
+  other RIDs (linux-x64, osx-arm64) are for .NET P/Invoke consumers, where the
+  SDK's RID graph picks the matching runtimes/<rid>/native/ asset with no
+  targets file involved.
+-->
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <PonceletIncludeDir>$(MSBuildThisFileDirectory)include\</PonceletIncludeDir>
+    <PonceletNativeDir>$(MSBuildThisFileDirectory)..\..\runtimes\win-x64\native\</PonceletNativeDir>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Platform)'=='x64'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>$(PonceletIncludeDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+    <Link>
+      <AdditionalDependencies>$(PonceletNativeDir)poncelet.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(PonceletNativeDir);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup Condition="'$(Platform)'=='x64' AND Exists('$(PonceletNativeDir)poncelet.dll')">
+    <None Include="$(PonceletNativeDir)poncelet.dll">
+      <Link>poncelet.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Visible>false</Visible>
+    </None>
+  </ItemGroup>
+</Project>

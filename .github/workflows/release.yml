@@ -86,3 +86,59 @@ jobs:
         with:
           files: out/*
           generate_release_notes: true
+
+  nuget:
+    needs: build
+    runs-on: windows-latest
+    permissions:
+      id-token: write   # OIDC token for nuget.org Trusted Publishing (policy: poncelet-release)
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+      # Each poncelet-<os> artifact is the flat `stage/` dir from the build
+      # job (find matched by lib/dll basename, no subfolders) — pick the
+      # shared lib back out by name and place it under the RID layout the
+      # nuspec expects, renamed to the plain poncelet.* the C ABI header
+      # (include/poncelet/poncelet.h) declares, so .NET's DllImport("poncelet")
+      # resolves it via the SDK's RID graph with no per-platform name logic.
+      - name: Assemble nuget-stage
+        shell: bash
+        run: |
+          set -eu
+          mkdir -p nuget-stage/include nuget-stage/build
+          mkdir -p nuget-stage/runtimes/win-x64/native
+          mkdir -p nuget-stage/runtimes/linux-x64/native
+          mkdir -p nuget-stage/runtimes/osx-arm64/native
+
+          cp -r include/. nuget-stage/include/
+          cp nuget/Poncelet.targets nuget-stage/build/Poncelet.targets
+          cp nuget/Poncelet.props nuget-stage/build/Poncelet.props
+
+          cp artifacts/poncelet-windows-latest/poncelet_shared.dll nuget-stage/runtimes/win-x64/native/poncelet.dll
+          cp artifacts/poncelet-windows-latest/poncelet_shared.lib nuget-stage/runtimes/win-x64/native/poncelet.lib
+          cp artifacts/poncelet-ubuntu-latest/libponcelet_shared.so nuget-stage/runtimes/linux-x64/native/libponcelet.so
+          cp artifacts/poncelet-macos-latest/libponcelet_shared.dylib nuget-stage/runtimes/osx-arm64/native/libponcelet.dylib
+
+      - name: Derive version from tag
+        shell: bash
+        run: echo "PKG_VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+
+      - uses: NuGet/setup-nuget@v2
+
+      - name: Pack
+        run: nuget pack Poncelet.nuspec -Version ${{ env.PKG_VERSION }} -OutputDirectory nupkg -BasePath .
+
+      # Trusted Publishing (policy "poncelet-release" on nuget.org): trades this
+      # job's OIDC token for a single-use, ~1h API key — no long-lived secret
+      # stored in the repo. The policy's workflow filename must be exactly
+      # "release.yml" (this file) or the token exchange is rejected.
+      - name: NuGet login (OIDC -> temp API key)
+        uses: NuGet/login@v1
+        id: login
+        with:
+          user: felixmiddelhoff
+
+      - name: Push to nuget.org
+        run: dotnet nuget push nupkg\*.nupkg --api-key ${{ steps.login.outputs.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate

@@ -20,7 +20,7 @@ import os
 
 class PonceletConan(ConanFile):
     name = "poncelet"
-    version = "1.0.0"
+    version = "1.2.0"
     license = "MIT"
     description = "Projectile & terminal-ballistics simulation library"
     topics = ("ballistics", "physics", "simulation", "game-development")
